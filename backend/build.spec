@@ -1,14 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
-
-block_cipher = None
+# PyInstaller >= 6.0 spec (legacy block_cipher / win_* options removed).
 
 a = Analysis(
     ['src/api/main.py'],
-    pathex=['..'], # Allow resolving 'backend' package from root
+    pathex=['..'],  # Allow resolving 'backend' package from root
     binaries=[],
     datas=[
-        ('src', 'backend/src'),  # Map 'src' to 'backend/src' inside bundle so 'backend.src' imports work
-        # Add any other data files here
+        # Map 'src' to 'backend/src' inside bundle so 'backend.src' imports work
+        ('src', 'backend/src'),
     ],
     hiddenimports=[
         'uvicorn.logging',
@@ -26,12 +25,9 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
 )
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure, a.zipped_data)
 
 exe = EXE(
     pyz,

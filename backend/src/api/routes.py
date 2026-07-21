@@ -157,7 +157,7 @@ async def run_full_sync_task(db_session_factory):
 @router.post("/api/advisor/chat")
 async def chat(request: ChatRequest):
     """
-    Interacts with the AI Advisor (LangChain SQL Agent).
+    Interacts with the AI Advisor (Claude tool-use analyst over the local DB).
     """
     try:
         logger.info("Incoming Chat Request.")

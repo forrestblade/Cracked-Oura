@@ -1,17 +1,16 @@
+# --- Runtime ---
 fastapi
 uvicorn[standard]
 sqlalchemy
 pandas
-pytest
-black
-flake8
 python-multipart
 httpx
 playwright
 requests
-langchain
-langchain-community
-langchain-ollama
-langchain-experimental
-faiss-cpu
 pydantic>=2.0.0
+
+# --- Dev / build tooling ---
+pytest
+black
+flake8
+pyinstaller

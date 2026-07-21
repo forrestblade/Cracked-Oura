@@ -32,7 +32,14 @@
       "icon": "icon.png"
     },
     "win": {
-      "icon": "icon.png"
+      "icon": "icon.png",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     },
     "linux": {
       "icon": "icon.png",
