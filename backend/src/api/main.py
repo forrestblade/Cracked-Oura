@@ -1,6 +1,8 @@
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from backend.src.api.routes import router
+from backend.src.api.ring import ring_router
+from backend.src.api.claude import claude_router
 from backend.src.database import init_db
 
 import asyncio
@@ -77,6 +79,8 @@ app.add_middleware(
 
 # Include routers
 app.include_router(router)
+app.include_router(ring_router)
+app.include_router(claude_router)
 
 # --- API Models for Automation ---
 class AutomationConfig(BaseModel):
