@@ -13,6 +13,7 @@ Flow:
 Tokens grant `user:inference` — Messages API calls authenticate with
 `Authorization: Bearer` + `anthropic-beta: oauth-2025-04-20`.
 """
+
 import base64
 import hashlib
 import json
@@ -61,20 +62,30 @@ def _load_tokens() -> dict | None:
 def start_auth() -> str:
     """Generate PKCE pair and return the authorize URL to open in a browser."""
     global _pending_verifier
-    _pending_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(_pending_verifier.encode()).digest()
-    ).decode().rstrip("=")
-    return AUTHORIZE_URL + "?" + urlencode({
-        "code": "true",
-        "client_id": CLIENT_ID,
-        "response_type": "code",
-        "redirect_uri": REDIRECT_URI,
-        "scope": SCOPES,
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
-        "state": _pending_verifier,
-    })
+    _pending_verifier = (
+        base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
+    )
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(_pending_verifier.encode()).digest())
+        .decode()
+        .rstrip("=")
+    )
+    return (
+        AUTHORIZE_URL
+        + "?"
+        + urlencode(
+            {
+                "code": "true",
+                "client_id": CLIENT_ID,
+                "response_type": "code",
+                "redirect_uri": REDIRECT_URI,
+                "scope": SCOPES,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "state": _pending_verifier,
+            }
+        )
+    )
 
 
 def finish_auth(pasted_code: str) -> dict:
@@ -84,16 +95,22 @@ def finish_auth(pasted_code: str) -> dict:
         raise RuntimeError("No auth in progress — click Connect first")
     pasted_code = pasted_code.strip()
     code, _, state = pasted_code.partition("#")
-    resp = requests.post(TOKEN_URL, json={
-        "grant_type": "authorization_code",
-        "code": code,
-        "state": state or _pending_verifier,
-        "client_id": CLIENT_ID,
-        "redirect_uri": REDIRECT_URI,
-        "code_verifier": _pending_verifier,
-    }, timeout=30)
+    resp = requests.post(
+        TOKEN_URL,
+        json={
+            "grant_type": "authorization_code",
+            "code": code,
+            "state": state or _pending_verifier,
+            "client_id": CLIENT_ID,
+            "redirect_uri": REDIRECT_URI,
+            "code_verifier": _pending_verifier,
+        },
+        timeout=30,
+    )
     if resp.status_code != 200:
-        raise RuntimeError(f"Token exchange failed ({resp.status_code}): {resp.text[:200]}")
+        raise RuntimeError(
+            f"Token exchange failed ({resp.status_code}): {resp.text[:200]}"
+        )
     _save_tokens(resp.json())
     _pending_verifier = None
     logger.info("Claude OAuth connected.")
@@ -103,13 +120,19 @@ def finish_auth(pasted_code: str) -> dict:
 def _refresh(tokens: dict) -> dict | None:
     if not tokens.get("refresh_token"):
         return None
-    resp = requests.post(TOKEN_URL, json={
-        "grant_type": "refresh_token",
-        "refresh_token": tokens["refresh_token"],
-        "client_id": CLIENT_ID,
-    }, timeout=30)
+    resp = requests.post(
+        TOKEN_URL,
+        json={
+            "grant_type": "refresh_token",
+            "refresh_token": tokens["refresh_token"],
+            "client_id": CLIENT_ID,
+        },
+        timeout=30,
+    )
     if resp.status_code != 200:
-        logger.error(f"Claude token refresh failed: {resp.status_code} {resp.text[:200]}")
+        logger.error(
+            f"Claude token refresh failed: {resp.status_code} {resp.text[:200]}"
+        )
         return None
     data = resp.json()
     if "refresh_token" not in data:

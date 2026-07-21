@@ -10,11 +10,13 @@ from .config import config_manager
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("OuraAutomator")
 
+
 class OuraAutomator:
     """
     Automates Oura Web Dashboard interactions using Playwright.
     Handles Login, OTP verification, Data Export request, and File Download.
     """
+
     def __init__(self):
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
@@ -29,7 +31,7 @@ class OuraAutomator:
 
         # Configure Playwright Browser Path
         from .paths import get_user_data_dir
-        
+
         # Use a writable directory for browsers
         self.browser_dir = os.path.join(get_user_data_dir(), "browsers")
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = self.browser_dir
@@ -46,7 +48,7 @@ class OuraAutomator:
         if headless is None:
             config = config_manager.get_config()
             headless = config.get("headless", True)
-        
+
         # Load credentials from config if not already set
         if not self.email:
             config = config_manager.get_config()
@@ -55,63 +57,78 @@ class OuraAutomator:
 
         logger.info(f"Initializing Playwright (Headless: {headless})")
         self.playwright = await async_playwright().start()
-        
+
         try:
-            self.browser = await self.playwright.chromium.launch(headless=headless, args=["--start-maximized"])
+            self.browser = await self.playwright.chromium.launch(
+                headless=headless, args=["--start-maximized"]
+            )
         except Exception as e:
             logger.error(f"Failed to launch browser: {e}")
             logger.info("Retrying installation...")
             await self._ensure_browser_installed(force=True)
-            self.browser = await self.playwright.chromium.launch(headless=headless, args=["--start-maximized"])
-        
+            self.browser = await self.playwright.chromium.launch(
+                headless=headless, args=["--start-maximized"]
+            )
+
         # Load session if exists
-        state = self.storage_state_path if os.path.exists(self.storage_state_path) else None
+        state = (
+            self.storage_state_path if os.path.exists(self.storage_state_path) else None
+        )
         if state:
             logger.info(f"Loading session from {state}")
-            
+
         self.context = await self.browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            storage_state=state
+            viewport={"width": 1920, "height": 1080}, storage_state=state
         )
-            
+
         self.page = await self.context.new_page()
         self._is_initialized = True
 
     async def _ensure_browser_installed(self, force=False):
         """Checks if Chromium is installed and installs it if missing."""
         # Check if we suspect it's missing (simple check: is the dir empty?)
-        if not force and os.path.exists(self.browser_dir) and os.listdir(self.browser_dir):
+        if (
+            not force
+            and os.path.exists(self.browser_dir)
+            and os.listdir(self.browser_dir)
+        ):
             return
 
         logger.info("Installing Playwright Chromium browser...")
         config_manager.update_status("Installing dependency (Chromium)...")
-        
+
         try:
             # Import internal driver helpers to find the bundled Node.js
-            from playwright._impl._driver import compute_driver_executable, get_driver_env
-            
+            from playwright._impl._driver import (
+                compute_driver_executable,
+                get_driver_env,
+            )
+
             driver_executable, driver_cli = compute_driver_executable()
             env = get_driver_env()
-            
+
             # Use the bundled Node.js to run the install command directly
             # This avoids recursive app launching
-            
+
             logger.info(f"Using driver: {driver_executable} {driver_cli}")
-            
+
             process = await asyncio.create_subprocess_exec(
-                driver_executable, driver_cli, "install", "chromium",
+                driver_executable,
+                driver_cli,
+                "install",
+                "chromium",
                 env=env,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await process.communicate()
-            
+
             if process.returncode != 0:
                 logger.error(f"Browser install failed: {stderr.decode()}")
                 raise Exception(f"Failed to install browser: {stderr.decode()}")
-            
+
             logger.info("Browser installed successfully.")
-            
+
         except Exception as e:
             logger.error(f"Browser installation error: {e}")
             raise e
@@ -163,12 +180,12 @@ class OuraAutomator:
         try:
             # Check if already on the correct domain or redirect to it
             if self.base_url in self.page.url:
-                 pass
+                pass
             else:
-                 await self.page.goto(self.base_url, timeout=60000)
-            
+                await self.page.goto(self.base_url, timeout=60000)
+
             await self.page.wait_for_load_state("networkidle", timeout=10000)
-            
+
             if self._is_logged_in():
                 logger.info("Already logged in.")
                 await self.save_context()
@@ -188,28 +205,28 @@ class OuraAutomator:
         """Determines if user is logged in based on current URL."""
         if not self.page:
             return False
-        url = self.page.url.rstrip('/')
+        url = self.page.url.rstrip("/")
         return (url == self.base_url) and ("login" not in url) and ("authn" not in url)
 
     async def _perform_login_actions(self) -> Dict[str, str]:
         """Interacts with the login form, handling email submission and checking for OTP requirements."""
         if "login" not in self.page.url and "authn" not in self.page.url:
-             await self.page.goto(f"{self.base_url}/login", timeout=30000)
+            await self.page.goto(f"{self.base_url}/login", timeout=30000)
 
         # Fill Email
         logger.info(f"Filling email: {self.email}")
         email_input = self.page.locator("input[name='username']")
         if not await email_input.is_visible():
-             email_input = self.page.locator("input[type='email']")
-        
+            email_input = self.page.locator("input[type='email']")
+
         if not await email_input.is_visible():
             raise Exception("Could not find email input.")
 
         await email_input.fill(self.email)
-        await self.page.dispatch_event("input[name='username']", 'input') 
-        
+        await self.page.dispatch_event("input[name='username']", "input")
+
         await self._click_submit()
-        
+
         # Check for OTP or Password requirements
         otp_status = await self._check_otp_screen()
         if otp_status:
@@ -218,19 +235,19 @@ class OuraAutomator:
         # Password fallback (unlikely for Oura's current flow but retained for robustness)
         password_input = self.page.locator("input[type='password']")
         if await password_input.is_visible():
-             if not self.password:
-                 raise Exception("Password required but not configured.")
-             await password_input.fill(self.password)
-             await self.page.keyboard.press("Enter")
-        
+            if not self.password:
+                raise Exception("Password required but not configured.")
+            await password_input.fill(self.password)
+            await self.page.keyboard.press("Enter")
+
         # Final Verification
         await self.page.wait_for_load_state("networkidle")
         if not self._is_logged_in():
-             # Re-check OTP in case of network lag
-             if await self._check_otp_screen():
-                 return {"status": "otp_required", "message": "OTP required"}
-             raise Exception("Login failed or incomplete.")
-        
+            # Re-check OTP in case of network lag
+            if await self._check_otp_screen():
+                return {"status": "otp_required", "message": "OTP required"}
+            raise Exception("Login failed or incomplete.")
+
         logger.info("Login process completed successfully.")
         await self.save_context()
         return {"status": "success", "message": "Login successful"}
@@ -240,12 +257,12 @@ class OuraAutomator:
         submit_btn = self.page.locator("button[type='submit']")
         if not await submit_btn.is_visible():
             submit_btn = self.page.locator("#submit-button")
-        
+
         if await submit_btn.is_visible():
             await submit_btn.click()
         else:
             await self.page.keyboard.press("Enter")
-        
+
         await self.page.wait_for_timeout(3000)
 
     async def _check_otp_screen(self):
@@ -255,9 +272,11 @@ class OuraAutomator:
         otp_input_name = self.page.locator("input[name='otp']")
         otp_input_id = self.page.locator("#otp-code")
 
-        if await intermediate_btn.is_visible() and \
-           not await otp_input_name.is_visible() and \
-           not await otp_input_id.is_visible():
+        if (
+            await intermediate_btn.is_visible()
+            and not await otp_input_name.is_visible()
+            and not await otp_input_id.is_visible()
+        ):
             logger.info("Found intermediate 'Send Code' button. Clicking...")
             await intermediate_btn.click()
             await self.page.wait_for_timeout(3000)
@@ -280,27 +299,31 @@ class OuraAutomator:
             if not await self.page.locator(otp_selector).is_visible():
                 if await self.page.locator("#otp-code").is_visible():
                     otp_selector = "#otp-code"
-                elif await self.page.locator("input[name='verification_code']").is_visible():
+                elif await self.page.locator(
+                    "input[name='verification_code']"
+                ).is_visible():
                     otp_selector = "input[name='verification_code']"
                 else:
                     raise Exception("Could not find OTP input field")
-            
+
             await self.page.fill(otp_selector, otp)
-            await self.page.dispatch_event(otp_selector, 'input')
-            
+            await self.page.dispatch_event(otp_selector, "input")
+
             await self._click_submit()
             await self.page.wait_for_load_state("networkidle")
-            
+
             # Verify success
             if self._is_logged_in():
                 logger.info("OTP Accepted. Login successful.")
                 await self.save_context()
                 return {"status": "success", "message": "Login successful!"}
             else:
-                 if await self.page.get_by_text("Virheellinen koodi").is_visible() or \
-                    await self.page.get_by_text("Invalid code").is_visible():
-                     return {"status": "error", "message": "Invalid OTP code."}
-                 return {"status": "error", "message": "Login failed (Unknown state)."}
+                if (
+                    await self.page.get_by_text("Virheellinen koodi").is_visible()
+                    or await self.page.get_by_text("Invalid code").is_visible()
+                ):
+                    return {"status": "error", "message": "Invalid OTP code."}
+                return {"status": "error", "message": "Login failed (Unknown state)."}
 
         except Exception as e:
             logger.error(f"OTP submission error: {e}")
@@ -328,7 +351,7 @@ class OuraAutomator:
             if not await self._navigate_to_export_page():
                 # Check if stuck on Login/OTP
                 if "login" in self.page.url or "authn" in self.page.url:
-                     return {"status": "otp_required"}
+                    return {"status": "otp_required"}
                 return None
 
             # 2. Click Request Button (if available)
@@ -376,9 +399,9 @@ class OuraAutomator:
         """Navigates to the export page, handling potential login redirects and re-tries."""
         logger.info(f"Navigating to {self.export_url}")
         await self.page.goto(self.export_url, timeout=60000)
-        
+
         # Poll for URL correctness (handling redirects)
-        for _ in range(10): # 10s timeout
+        for _ in range(10):  # 10s timeout
             try:
                 await self.page.wait_for_load_state("networkidle", timeout=2000)
             except Exception:
@@ -388,28 +411,28 @@ class OuraAutomator:
             if "/data-export" in current_url:
                 logger.info("Successfully arrived at data-export page.")
                 return True
-            
+
             # Handle Login Redirect
             if "login" in current_url or "authn" in current_url:
                 logger.info("Redirected to login. Logging in...")
                 login_result = await self.login()
                 if login_result and login_result.get("status") == "otp_required":
-                     return False
+                    return False
                 # Retry nav after login
                 await self.page.goto(self.export_url, timeout=30000)
-            
+
             # Handle Home Page redirect (sometimes happens on first load)
-            elif current_url.rstrip('/') == self.base_url:
+            elif current_url.rstrip("/") == self.base_url:
                 logger.info("Landed on Home Page. Retrying navigation to Export...")
                 await self.page.goto(self.export_url, timeout=30000)
-                
+
             await self.page.wait_for_timeout(1000)
 
         # Final check
         if "/data-export" not in self.page.url:
-             logger.warning(f"Failed to reach export page. Current URL: {self.page.url}")
-             return False
-             
+            logger.warning(f"Failed to reach export page. Current URL: {self.page.url}")
+            return False
+
         return True
 
     async def _click_request_export_button(self) -> bool:
@@ -422,7 +445,7 @@ class OuraAutomator:
             pass
 
         if not await target_btn.is_visible():
-            target_btn = self.page.locator('main button').first
+            target_btn = self.page.locator("main button").first
             try:
                 await target_btn.wait_for(state="visible", timeout=5000)
             except Exception:
@@ -439,19 +462,19 @@ class OuraAutomator:
         aria_disabled = await target_btn.get_attribute("aria-disabled") == "true"
 
         if is_disabled or aria_disabled:
-             return False
+            return False
 
-        # Attempt Click 
+        # Attempt Click
         try:
             # We try to wait for enabled state, but don't strictly block on it in case of UI quirks
             try:
                 await target_btn.wait_for(state="enabled", timeout=3000)
             except Exception:
                 pass
-            
+
             logger.info("Found Request button. Clicking...")
             await target_btn.click(timeout=5000)
-            
+
             # Wait for state change confirmation
             await self.page.wait_for_timeout(2000)
             return True
@@ -461,23 +484,27 @@ class OuraAutomator:
 
     async def _wait_for_processing(self) -> bool:
         """Polls until the request button is re-enabled, indicating report generation is complete."""
-        max_retries = 30 # Approx 2.5 hours total wait time
-        poll_interval = 300 # 5 minutes between checks
-        
+        max_retries = 30  # Approx 2.5 hours total wait time
+        poll_interval = 300  # 5 minutes between checks
+
         for i in range(max_retries):
             # Check if Request button is enabled again (indicating download is ready)
-            request_btn = self.page.locator('[data-testid="pageSubtitle"] + button').first
+            request_btn = self.page.locator(
+                '[data-testid="pageSubtitle"] + button'
+            ).first
             if not await request_btn.is_visible():
-                request_btn = self.page.locator('main button').first
-            
+                request_btn = self.page.locator("main button").first
+
             if await request_btn.is_visible() and await request_btn.is_enabled():
-                return True # Export is ready
-            
-            logger.info(f"Processing... (Attempt {i+1}/{max_retries}) - Next check in {poll_interval}s")
+                return True  # Export is ready
+
+            logger.info(
+                f"Processing... (Attempt {i+1}/{max_retries}) - Next check in {poll_interval}s"
+            )
             await self.page.wait_for_timeout(poll_interval * 1000)
             await self.page.reload()
             await self.page.wait_for_load_state("networkidle")
-            
+
         return False
 
     async def _download_file(self, save_dir: str) -> Optional[str]:
@@ -487,20 +514,21 @@ class OuraAutomator:
             await download_btn.wait_for(state="visible", timeout=10000)
         except Exception:
             pass
-            
+
         if await download_btn.is_visible():
             logger.info("Download button found. Clicking...")
             async with self.page.expect_download() as download_info:
                 await download_btn.click()
-            
+
             download = await download_info.value
             filename = download.suggested_filename
             save_path = os.path.join(save_dir, filename)
             await download.save_as(save_path)
             logger.info(f"Downloaded to {save_path}")
             return save_path
-        
+
         logger.warning("Download button not found.")
         return None
+
 
 automator = OuraAutomator()

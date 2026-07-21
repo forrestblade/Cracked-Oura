@@ -1,16 +1,16 @@
-
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime
 from pydantic import BaseModel
 
 # --- Daily Summaries ---
 
+
 class SleepResponse(BaseModel):
     day: date
     score: Optional[int] = None
     timestamp: Optional[datetime] = None
     contributors: Optional[Dict[str, Any]] = None
-    
+
     # Merged fields
     optimal_bedtime: Optional[Dict[str, Any]] = None
     recommendation: Optional[str] = None
@@ -22,6 +22,7 @@ class SleepResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 class ActivityResponse(BaseModel):
     day: date
@@ -35,7 +36,7 @@ class ActivityResponse(BaseModel):
     class_5_min: Optional[List[Dict[str, Any]]] = None
     met: Optional[List[Dict[str, Any]]] = None
     stress: Optional[List[Dict[str, Any]]] = None
-    
+
     high_activity_met_minutes: Optional[int] = None
     high_activity_time: Optional[int] = None
     inactivity_alerts: Optional[int] = None
@@ -54,6 +55,7 @@ class ActivityResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class ReadinessResponse(BaseModel):
     day: date
     score: Optional[int] = None
@@ -69,6 +71,7 @@ class ReadinessResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class ResilienceResponse(BaseModel):
     day: date
     level: Optional[str] = None
@@ -79,6 +82,7 @@ class ResilienceResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class CardiovascularAgeResponse(BaseModel):
     day: date
     vascular_age: Optional[int] = None
@@ -86,7 +90,9 @@ class CardiovascularAgeResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 # --- Sessions ---
+
 
 class SleepSessionResponse(BaseModel):
     id: str
@@ -103,18 +109,18 @@ class SleepSessionResponse(BaseModel):
     awake_time: Optional[int] = None
     average_heart_rate: Optional[float] = None
     average_hrv: Optional[int] = None
-    
+
     # Sequences converted to JSON
     sleep_phase_5_min: Optional[List[Dict[str, Any]]] = None
     sleep_phase_30_sec: Optional[List[Dict[str, Any]]] = None
     movement_30_sec: Optional[List[Dict[str, Any]]] = None
-    
+
     # New detailed fields
     hr_data: Optional[List[Dict[str, Any]]] = None
     hrv_data: Optional[List[Dict[str, Any]]] = None
     readiness: Optional[Dict[str, Any]] = None
     readiness_score_delta: Optional[float] = None
-    
+
     average_breath: Optional[float] = None
     bedtime_end: Optional[datetime] = None
     bedtime_start: Optional[datetime] = None
@@ -128,6 +134,7 @@ class SleepSessionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 class WorkoutResponse(BaseModel):
     id: str
@@ -144,6 +151,7 @@ class WorkoutResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class MeditationResponse(BaseModel):
     id: str
     day: date
@@ -155,7 +163,9 @@ class MeditationResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 # --- Time Series ---
+
 
 class HeartRateResponse(BaseModel):
     timestamp: datetime
@@ -165,12 +175,14 @@ class HeartRateResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class TemperatureResponse(BaseModel):
     timestamp: datetime
     skin_temp: Optional[float] = None
 
     class Config:
         from_attributes = True
+
 
 class RingBatteryResponse(BaseModel):
     timestamp: datetime
@@ -181,7 +193,9 @@ class RingBatteryResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 # --- Metadata ---
+
 
 class RingConfigurationResponse(BaseModel):
     id: str
@@ -193,6 +207,7 @@ class RingConfigurationResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class TagResponse(BaseModel):
     id: str
     start_time: Optional[datetime] = None
@@ -203,7 +218,9 @@ class TagResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 # --- Comprehensive Day Data ---
+
 
 class DayDataResponse(BaseModel):
     date: date
@@ -212,13 +229,13 @@ class DayDataResponse(BaseModel):
     readiness: Optional[ReadinessResponse] = None
     resilience: Optional[ResilienceResponse] = None
     cardiovascular_age: Optional[CardiovascularAgeResponse] = None
-    
+
     # Collections
     sleep_sessions: List[SleepSessionResponse] = []
     workouts: List[WorkoutResponse] = []
     meditation: List[MeditationResponse] = []
     ring_battery: List[RingBatteryResponse] = []
-    
+
     # Time Series (Optional)
     heart_rate: Optional[List[HeartRateResponse]] = None
     temperature: Optional[List[TemperatureResponse]] = None

@@ -1,16 +1,17 @@
 import os
 import logging
+import sys
+import traceback
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
 from .models import Base
+from .paths import get_user_data_dir
 
 # Configure Logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Database")
-
-from .paths import get_user_data_dir
-import sys
-import traceback
 
 # --- Configuration ---
 
@@ -51,6 +52,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # --- Utilities ---
 
+
 def init_db():
     """
     Initializes the database schema.
@@ -63,11 +65,12 @@ def init_db():
         logger.error(f"Failed to initialize database: {e}")
         raise e
 
+
 def get_db():
     """
     FastAPI Dependency for database sessions.
     Ensures that a session is created for each request and closed afterwards.
-    
+
     Yields:
         Session: The SQLAlchemy database session.
     """

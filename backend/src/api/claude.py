@@ -1,4 +1,5 @@
 """Claude OAuth endpoints for the frontend connect flow."""
+
 import logging
 
 from fastapi import APIRouter, HTTPException

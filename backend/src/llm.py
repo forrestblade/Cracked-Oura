@@ -7,6 +7,7 @@ Messages API tool-use loop:
   - thoughts are reported in the same shape the frontend already renders
     ({step, type: tool_call|tool_result, tool, params, content})
 """
+
 import json
 import logging
 import os
@@ -61,7 +62,8 @@ class DataAnalyst:
             con = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
             rows = con.execute(
                 "SELECT name, sql FROM sqlite_master WHERE type='table' "
-                "AND name NOT LIKE 'sqlite_%'").fetchall()
+                "AND name NOT LIKE 'sqlite_%'"
+            ).fetchall()
             con.close()
             return "\n".join(sql for _, sql in rows if sql)
         except Exception as e:
@@ -77,8 +79,10 @@ class DataAnalyst:
             cur = con.execute(q)
             rows = [dict(r) for r in cur.fetchmany(200)]
             con.close()
-            return json.dumps({"rows": rows, "row_count": len(rows),
-                               "truncated": len(rows) == 200}, default=str)
+            return json.dumps(
+                {"rows": rows, "row_count": len(rows), "truncated": len(rows) == 200},
+                default=str,
+            )
         except Exception as e:
             return json.dumps({"error": str(e)})
 
@@ -133,7 +137,9 @@ Rules:
     def _call_claude(self, messages: list) -> dict:
         token = claude_auth.get_access_token()
         if not token:
-            raise RuntimeError("Claude is not connected. Open Settings and connect your Claude account.")
+            raise RuntimeError(
+                "Claude is not connected. Open Settings and connect your Claude account."
+            )
         body = {
             "model": self.model,
             "max_tokens": 4096,
@@ -141,25 +147,36 @@ Rules:
             "tools": [SQL_TOOL],
             "messages": messages,
         }
-        resp = requests.post(API_URL, headers=self._headers(token), json=body, timeout=120)
+        resp = requests.post(
+            API_URL, headers=self._headers(token), json=body, timeout=120
+        )
         if resp.status_code == 404 and "model" in resp.text:
             # Stale/unknown model id — resolve a real one and retry once.
             fallback = self._resolve_model(token)
             if fallback and fallback != self.model:
-                logger.warning(f"Model '{self.model}' not found; retrying with '{fallback}'")
+                logger.warning(
+                    f"Model '{self.model}' not found; retrying with '{fallback}'"
+                )
                 self.model = fallback
                 config_manager.update_config(claude_model=fallback)
                 body["model"] = fallback
-                resp = requests.post(API_URL, headers=self._headers(token), json=body, timeout=120)
+                resp = requests.post(
+                    API_URL, headers=self._headers(token), json=body, timeout=120
+                )
         if resp.status_code != 200:
-            raise RuntimeError(f"Claude API error {resp.status_code}: {resp.text[:300]}")
+            raise RuntimeError(
+                f"Claude API error {resp.status_code}: {resp.text[:300]}"
+            )
         return resp.json()
 
     # -- Agent loop ----------------------------------------------------------
 
     def chat(self, history: List[Dict[str, str]]) -> Dict[str, Any]:
-        messages = [{"role": m["role"], "content": m["content"]}
-                    for m in history if m.get("role") in ("user", "assistant") and m.get("content")]
+        messages = [
+            {"role": m["role"], "content": m["content"]}
+            for m in history
+            if m.get("role") in ("user", "assistant") and m.get("content")
+        ]
         thoughts: list = []
         step = 0
         try:
@@ -169,8 +186,9 @@ Rules:
                 messages.append({"role": "assistant", "content": content})
 
                 if reply.get("stop_reason") != "tool_use":
-                    text = "".join(b.get("text", "") for b in content
-                                   if b.get("type") == "text")
+                    text = "".join(
+                        b.get("text", "") for b in content if b.get("type") == "text"
+                    )
                     return {"response": text or "(no answer)", "thoughts": thoughts}
 
                 results = []
@@ -179,20 +197,37 @@ Rules:
                         continue
                     step += 1
                     query = (block.get("input") or {}).get("query", "")
-                    thoughts.append({"step": step, "type": "tool_call",
-                                     "tool": "sql_query", "params": query,
-                                     "content": f"SQL: {query}"})
+                    thoughts.append(
+                        {
+                            "step": step,
+                            "type": "tool_call",
+                            "tool": "sql_query",
+                            "params": query,
+                            "content": f"SQL: {query}",
+                        }
+                    )
                     out = self._run_sql(query)
                     step += 1
-                    thoughts.append({"step": step, "type": "tool_result",
-                                     "content": out[:2000]})
-                    results.append({"type": "tool_result",
-                                    "tool_use_id": block["id"], "content": out})
+                    thoughts.append(
+                        {"step": step, "type": "tool_result", "content": out[:2000]}
+                    )
+                    results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block["id"],
+                            "content": out,
+                        }
+                    )
                 messages.append({"role": "user", "content": results})
 
-            return {"response": "I hit the tool-call limit before finishing — try a narrower question.",
-                    "thoughts": thoughts}
+            return {
+                "response": "I hit the tool-call limit before finishing — try a narrower question.",
+                "thoughts": thoughts,
+            }
         except Exception as e:
             logger.error(f"Claude analyst error: {e}")
-            return {"response": f"I encountered an error: {e}",
-                    "thoughts": thoughts + [{"step": 99, "type": "error", "content": str(e)}]}
+            return {
+                "response": f"I encountered an error: {e}",
+                "thoughts": thoughts
+                + [{"step": 99, "type": "error", "content": str(e)}],
+            }

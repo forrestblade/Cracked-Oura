@@ -14,11 +14,13 @@ DASHBOARD_FILE = "oura_dashboard.json"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ConfigManager")
 
+
 class ConfigManager:
     """
     Manages application configuration and dashboard state.
     Handles reading/writing to JSON files with thread safety.
     """
+
     def __init__(self):
         self.data_dir = get_user_data_dir()
         self.config_path = os.path.join(self.data_dir, CONFIG_FILE)
@@ -32,28 +34,31 @@ class ConfigManager:
         if not os.path.exists(self.config_path):
             default_config = {
                 "email": "",
-                "schedule_time": "11:00", # Default 11 AM
+                "schedule_time": "11:00",  # Default 11 AM
                 "last_run": None,
                 "next_run": None,
                 "status": "Idle",
                 "is_active": True,
                 "headless": True,
                 "llm_model": "llama3.1:latest",
-                "llm_host": "http://localhost:11434"
+                "llm_host": "http://localhost:11434",
             }
             self._save_file(self.config_path, default_config)
 
         # 2. Ensure dashboard config exists
         if not os.path.exists(self.dashboard_path):
-             # Create empty default if doesn't exist
-             self._save_file(self.dashboard_path, {"dashboard": {"dashboards": [], "activeDashboardId": None}})
+            # Create empty default if doesn't exist
+            self._save_file(
+                self.dashboard_path,
+                {"dashboard": {"dashboards": [], "activeDashboardId": None}},
+            )
 
     def _load_file(self, path: str) -> Dict[str, Any]:
         """Loads JSON content from a file safely."""
         try:
             if not os.path.exists(path):
                 return {}
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, "r", encoding="utf-8") as f:
                 content = f.read().strip()
                 if not content:
                     return {}
@@ -66,7 +71,7 @@ class ConfigManager:
         """Saves data to a JSON file atomically."""
         tmp_path = f"{path}.{uuid.uuid4()}.tmp"
         try:
-            with open(tmp_path, 'w', encoding='utf-8') as f:
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
                 f.flush()
                 # Ensure write to disk
@@ -83,7 +88,7 @@ class ConfigManager:
         with self._lock:
             main_conf = self._load_file(self.config_path)
             dash_conf = self._load_file(self.dashboard_path)
-            
+
             # Merge: dashboard config overrides main if keys collide
             return {**main_conf, **dash_conf}
 
@@ -92,10 +97,10 @@ class ConfigManager:
         with self._lock:
             main_conf = self._load_file(self.config_path)
             dash_conf = self._load_file(self.dashboard_path)
-            
+
             main_changed = False
             dash_changed = False
-            
+
             for key, value in kwargs.items():
                 if value is None:
                     continue
@@ -108,7 +113,7 @@ class ConfigManager:
                     # General config update
                     main_conf[key] = value
                     main_changed = True
-            
+
             if main_changed:
                 self._save_file(self.config_path, main_conf)
             if dash_changed:
@@ -120,5 +125,6 @@ class ConfigManager:
         Accepts flexible kwargs like 'message', 'last_run', 'next_run'.
         """
         self.update_config(status=status, **kwargs)
+
 
 config_manager = ConfigManager()
