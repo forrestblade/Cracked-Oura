@@ -49,13 +49,26 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
                 if (anchor === 'selected_date') {
                     end = new Date(date);
                 } else {
-                    // Always use today (start of day) as anchor
-                    end = new Date(today);
+                    // Always use today as anchor. NOTE: must be `new Date()` —
+                    // `new Date('yyyy-MM-dd')` parses as UTC midnight, which
+                    // format() shifts to YESTERDAY in negative-UTC timezones.
+                    end = new Date();
                 }
 
                 if (value && unit) {
+                    if (unit === 'hours' || unit === 'minutes') {
+                        // Sub-day windows: the API filters by whole days, so
+                        // fetch yesterday..today and fine-filter client-side
+                        // (see timeFilteredData below).
+                        return {
+                            startDate: format(subDays(end, 1), 'yyyy-MM-dd'),
+                            endDate: format(end, 'yyyy-MM-dd')
+                        };
+                    }
                     let start = end;
                     if (unit === 'days') start = subDays(end, value);
+                    else if (unit === 'weeks') start = subDays(end, value * 7);
+                    else if (unit === 'months') start = subDays(end, value * 30);
                     else if (unit === 'years') start = subYears(end, value);
 
                     return {
@@ -69,20 +82,25 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
                     endDate: format(end, 'yyyy-MM-dd')
                 };
             }
+            case 'selected_day': {
+                // Exactly the selected day (defaults to today) — nothing else.
+                const dayOnly = (date || new Date().toISOString()).split('T')[0];
+                return { startDate: dayOnly, endDate: dayOnly };
+            }
             case 'to_today':
                 return {
-                    startDate: widget.config.dateRange?.startDate || format(subDays(new Date(today), 30), 'yyyy-MM-dd'),
+                    startDate: widget.config.dateRange?.startDate || format(subDays(new Date(), 30), 'yyyy-MM-dd'),
                     endDate: today
                 };
             case 'all':
                 return { startDate: undefined, endDate: undefined };
             case 'last_90':
-                return { startDate: format(subDays(new Date(today), 90), 'yyyy-MM-dd'), endDate: today };
+                return { startDate: format(subDays(new Date(), 90), 'yyyy-MM-dd'), endDate: today };
             case 'last_30':
-                return { startDate: format(subDays(new Date(today), 30), 'yyyy-MM-dd'), endDate: today };
+                return { startDate: format(subDays(new Date(), 30), 'yyyy-MM-dd'), endDate: today };
             default:
                 // Default to last 7 days relative to today for new widgets
-                return { startDate: format(subDays(new Date(today), 7), 'yyyy-MM-dd'), endDate: today };
+                return { startDate: format(subDays(new Date(), 7), 'yyyy-MM-dd'), endDate: today };
         }
     }, [widget.config.dateRange, date, widget.config.dataKey]);
 
@@ -117,21 +135,40 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
         );
     }, [data, selectedDayIndex, keysToFetch, startDate, endDate]);
 
-    const aggregatedData = useMemo(() => {
-        if (!processedData.data.length) return processedData;
-        if (processedData.isIntraday) return processedData;
-
-        const rangeType = widget.config.dateRange?.type;
-        if (rangeType !== 'all') return processedData;
-
-        const interval = pickAutoAggregationInterval(processedData.data);
-        if (!interval) return processedData;
-
+    // Sub-day (hours/minutes) relative windows: fine-filter fetched points
+    // client-side, since the API only supports whole-day bounds.
+    const timeFilteredData = useMemo(() => {
+        const dr = widget.config.dateRange;
+        if (dr?.type !== 'relative' || !dr.value ||
+            (dr.unit !== 'hours' && dr.unit !== 'minutes')) {
+            return processedData;
+        }
+        const unitMs = dr.unit === 'hours' ? 3_600_000 : 60_000;
+        const cutoff = Date.now() - dr.value * unitMs;
         return {
             ...processedData,
-            data: aggregateDailySeries(processedData.data, keysToFetch, interval, 'avg')
+            data: processedData.data.filter((p: any) => {
+                const t = new Date(p.date).getTime();
+                return !isNaN(t) && t >= cutoff;
+            })
         };
-    }, [processedData, keysToFetch, widget.config.dateRange?.type]);
+    }, [processedData, widget.config.dateRange]);
+
+    const aggregatedData = useMemo(() => {
+        if (!timeFilteredData.data.length) return timeFilteredData;
+        if (timeFilteredData.isIntraday) return timeFilteredData;
+
+        const rangeType = widget.config.dateRange?.type;
+        if (rangeType !== 'all') return timeFilteredData;
+
+        const interval = pickAutoAggregationInterval(timeFilteredData.data);
+        if (!interval) return timeFilteredData;
+
+        return {
+            ...timeFilteredData,
+            data: aggregateDailySeries(timeFilteredData.data, keysToFetch, interval, 'avg')
+        };
+    }, [timeFilteredData, keysToFetch, widget.config.dateRange?.type]);
 
     if (keysToFetch.length === 0) {
         return (
