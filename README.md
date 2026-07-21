@@ -1,115 +1,138 @@
 <div align="center">
-  <img src="frontend/public/icon.png" alt="Cracked Oura Logo" width="128">
-  <h1>Cracked Oura</h1>
-  <p><b>Free application that gives you full access to your Oura ring data.</b></p>
-  
-  [![GitHub release](https://img.shields.io/github/v/release/EIrno/Cracked-Oura?label=Latest%20Release)](https://github.com/EIrno/Cracked-Oura/releases/latest)
-  ![Status](https://img.shields.io/badge/Status-Alpha-red)
+  <img src="frontend/public/icon.png" alt="Logo" width="128">
+  <h1>Cracked Oura × RingLink</h1>
+  <p><b>Read your Oura Ring 4 directly over Bluetooth LE — no account, no cloud, no subscription — and see everything in a local dashboard.</b></p>
 </div>
 
 ---
 
-### Pay for the ring, not for the app that is not even that good
-Oura ring paywalls the data behind a subscription, but luckily you can export your data from Oura and import it to Cracked Oura.
+This is **not** a plain fork of Cracked-Oura. It is a new project that combines
+**three open-source codebases plus substantial original work** into one fully
+local pipeline:
 
-**Cracked Oura** is an open-source desktop application that provides full access to your health metrics, stored locally on your machine.
-
-**Key Benefits**
-- **No Subscription:** See all of your Oura ring data without subscription. 
-- **Privacy First:** Your data is stored locally in an SQLite database. It never leaves your computer unless you export it.
-- **Advanced Analytics:** Visualize trends, correlations, and deeper insights than the standard app provides. 
-
-<img width="1470" height="916" alt="Cracked Oura front page" src="https://github.com/user-attachments/assets/cda629a9-5072-4a5f-9e5d-6ddb3873c0f0" />
-
----
-
-## Features
-
-### Oura ring data without subscription
-See all of your Oura ring data without subscription. Thanks to EU's right to data portability, you can export your data from Oura and import it to Cracked Oura. 
-
-**Automation that requests your data from Oura and imports it to Cracked Oura.** This populates the local database with your data. Population can also be done manually by importing a zip file from Oura that you can find in https://membership.ouraring.com/data-export. 
-
-<img width="1470" height="916" alt="Cracked Oura automation" src="https://github.com/user-attachments/assets/8aa42539-f014-4254-8885-9d6dfabf13b2" />
-<img width="1470" height="916" alt="Cracked Oura logn term charts" src="https://github.com/user-attachments/assets/6cbd5345-d81e-4000-ade0-a0ea4e21508c" />
-
-
-### Desktop Dashboard that can be customized
-View your Sleep, Readiness, and Activity scores, etc in a desktop dashboards that is at least as good as the official Oura dashboard. The dashboards can be customized to show the data that you want to see. 
-
-<img width="1470" height="916" alt="Cracked Oura widget editor" src="https://github.com/user-attachments/assets/39103072-e176-4b13-86df-95eaacdd3ac1" />
-<img width="1470" height="916" alt="Cracked Oura layout editor" src="https://github.com/user-attachments/assets/43925f97-9d94-48aa-8b26-36a096499c0c" />
-
-### AI Health Analyst
-Oura's own AI advisor is quite limited. It does not have access to your historical data and cannot answer questions about your health trends, because it has only a few days of data available. 
-
-Cracked Oura can leverage local LLMs to analyze your health data and provide insights. 
-
-> [!NOTE]
-> This feature is still experimental, not documented, and under development and will be improved in the future. 
-
-<img width="1470" height="916" alt="Cracked Oura advisor" src="https://github.com/user-attachments/assets/e9ce6ac2-60da-486f-a01f-8cd03dce6337" />
-
----
-
-## Getting Started
-
-### Installation
-1.  **Download** the latest release for your operating system:
-    -   [Download for macOS (.dmg)](https://github.com/EIrno/Cracked-Oura/releases)
-    -   [Download for Windows (.exe)](https://github.com/EIrno/Cracked-Oura/releases) *(Coming Soon)*
-
-2.  **Install & Run** the application.
-3.  **Login** to your Oura account when prompted to sync your historical data.
-
-
-> [!NOTE]
-> Most of the features are still experimental and under development and will be improved in the future. 
-
-### Troubleshooting
-
-> **"App is damaged and can't be opened"** (macOS)
-> This is a known Gatekeeper issue because the app is not notarized by Apple.
-> To fix, move the app to your `Applications` folder and run this in Terminal:
-> ```bash
-> sudo xattr -cr "/Applications/Cracked Oura.app"
-> ```
-
-> [!NOTE]
-> This project is not affiliated with, associated with, or endorsed by Oura Health Oy. Use at your own risk.
-
----
-
-## For Developers
-
-We welcome contributions.
-
-### Tech Stack
--   **Frontend:** Electron, React, TypeScript, Tailwind
--   **Backend:** Python, FastAPI, SQLite
-
-### Build from Source
-```bash
-# 1. Clone Repository
-git clone https://github.com/EIrno/Cracked-Oura.git
-cd Cracked-Oura
-
-# 2. Setup Backend
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-# 3. Setup Frontend
-cd ../frontend
-npm install
-npm run dev
+```
+Oura Ring 4 ──BLE──▶ nRF52840 dongle ──▶ ringlink/ (Python)          ──▶ SQLite ──▶ Electron dashboard
+                     (Nordic connectivity   drain → decode → export       %APPDATA%/       (frontend/ + backend/)
+                      firmware, serial)     → ingest                      CrackedOura
 ```
 
-### Build for Production
-To create a standalone application installer:
+Your health data never touches Oura's cloud. You don't need an Oura account,
+an internet connection, or a subscription — just the ring you own and a ~$10
+Nordic dongle.
+
+## What this project is built from
+
+| Component | Origin | What it contributes |
+|---|---|---|
+| `frontend/`, `backend/` | **[EIrno/Cracked-Oura](https://github.com/EIrno/Cracked-Oura)** (fork base) | Electron/React dashboard, FastAPI backend, SQLite ingestion (`OuraParser`), widget system, chat UI |
+| `ringlink/openring/` | **[LogosIsLife/open_ring](https://github.com/LogosIsLife/open_ring)** (GPL-3.0, vendored) | Ring 4 inner-TLV framing, 50+ record decoders, event enums, the ~720-line PROTOCOL.md this pipeline is built against |
+| Protocol reference | **[Th0rgal/open_oura](https://github.com/Th0rgal/open_oura)** | First public documentation of the local BLE conversation (GATT UUIDs, AES-128/ECB auth handshake + known-answer vector, frame format, event-drain loop) |
+| Everything else in `ringlink/` + backend/frontend extensions | **Original work in this repo** | See below |
+
+Full credits and licensing details: **[ATTRIBUTION.md](ATTRIBUTION.md)** and
+`ringlink/openring/NOTICE.md`.
+
+### Original work in this repo
+
+- **`ringlink/oura_ring.py`** — a from-scratch Python BLE client for the
+  Ring 4, driving an **nRF52840 USB dongle** as a BLE central via
+  `pc-ble-driver-py` (the native Windows BLE stack is not used at all).
+  Handles scan, pairing/bonding, key install, AES-ECB app auth, clock sync,
+  and the cursor-advance history drain.
+- **`ringlink/decode_events.py`** — decode → export → ingest pipeline: raw
+  frames → typed records with resolved UTC timestamps → Oura-cloud-export
+  format CSVs → the upstream `OuraParser` ingests them unchanged into SQLite.
+- **`ringlink/sync_ring.py`** + **`install_task.sh`** — one-shot sync
+  orchestrator (single BLE connection: connect → auth → battery → time-sync →
+  drain → decode → export → ingest) run every 15 minutes by a Windows
+  Scheduled Task (`RingLocalSync`), with status written to
+  `ring_status.json`.
+- **Ring status in the dashboard** — new backend endpoints
+  (`GET /api/ring/status`, `POST /api/ring/sync`) and a header widget
+  (`RingStatus.tsx`): colored dot, battery %, last-sync age, "Sync now".
+- **AI analyst on Claude subscription OAuth** — replaced the upstream
+  Ollama/LangChain agent with a direct Anthropic tool-use loop using the
+  PKCE subscription OAuth flow (`backend/src/claude_auth.py`) — no API key.
+- **Empirical Gen-4 findings** (not documented anywhere else we found):
+  - The ring accepts a new auth key (`24 10 <key>`) **only on the very first
+    connection after a factory reset**; any earlier connection — even a
+    read-only battery probe — consumes the window (`25 01 01` refused).
+  - Awake heart rate arrives as `0x80` green-IBI quality records (7× 11-bit
+    IBI), not only the `0x5d`/`0x60` rest-mode records.
+  - Plus dashboard fixes: timezone-correct date windows, °F/local-naive
+    export convention matching Oura's own export, 12-hour times, widget
+    label/gauge fixes, and three provisioned dashboards
+    (`ringlink/configure_dashboard.py`).
+
+---
+
+## Hardware requirements
+
+- **Oura Ring 4** (yours, physically on hand — pairing requires a factory
+  reset via the charger ritual).
+- **Nordic nRF52840 USB dongle (PCA10059)**, flashed with Nordic's
+  `connectivity_4.1.4_usb_with_s132_5.1.0` firmware (ships inside the
+  `pc-ble-driver-py` wheel; `ringlink/flash_dongle.sh` flashes it after you
+  press the dongle's RESET button to enter the DFU bootloader).
+- Windows + Git Bash (current dev environment; the Python pipeline itself is
+  portable in principle).
+
+> A plain USB Bluetooth adapter is **not** enough for this code path — the
+> client speaks the Nordic connectivity serial protocol, not the OS BLE stack.
+
+## Quick start
+
 ```bash
-cd frontend
-npm run build
-# Output will be in frontend/dist-electron/
+# 0. One-time: flash the dongle (press its RESET button first → red LED pulse)
+cd ringlink && ./flash_dongle.sh
+
+# 1. One-time: pair with a freshly factory-reset ring.
+#    CRITICAL: pairing must be the FIRST connection after the reset completes.
+./venv310/Scripts/python.exe oura_ring.py pair     # writes oura_key.hex — back it up, never commit it
+
+# 2. Sync manually (or install the 15-min background task)
+./venv310/Scripts/python.exe sync_ring.py
+./install_task.sh                                   # registers Scheduled Task "RingLocalSync"
+
+# 3. Run the dashboard (vite + electron; electron spawns the FastAPI backend on :8000)
+cd .. && ./start_dashboard.sh
 ```
+
+Data lands in `%APPDATA%/CrackedOura/oura_database.db`. The dashboard's ring
+indicator shows sync freshness and battery, with a "Sync now" button.
+
+### Useful ringlink commands
+
+```bash
+./venv310/Scripts/python.exe oura_ring.py scan      # BLE scan (Oura highlighted)
+./venv310/Scripts/python.exe oura_ring.py info      # firmware / serial / battery
+./venv310/Scripts/python.exe oura_ring.py events    # drain history → events.jsonl
+./venv310/Scripts/python.exe decode_events.py ingest  # decode + export + import into the DB
+```
+
+`ringlink/HANDOFF.md` is the authoritative engineering log — protocol notes,
+failure modes, and every gotcha hit along the way.
+
+---
+
+## Repo layout
+
+```
+frontend/    Electron + React + TypeScript + Tailwind (upstream base + fixes)
+backend/     FastAPI + SQLite (+ /api/ring/*, Claude OAuth analyst)
+ringlink/    The BLE pipeline: client, vendored decoders (GPL-3.0), sync, task installer
+```
+
+## Licensing & disclaimer
+
+- `ringlink/openring/` is vendored from LogosIsLife/open_ring under
+  **GPL-3.0**; that code and the `ringlink/` derivatives of it remain
+  GPL-3.0 (`ringlink/openring/NOTICE.md`).
+- The dashboard portions derive from EIrno/Cracked-Oura — see
+  [ATTRIBUTION.md](ATTRIBUTION.md).
+- `oura_key.hex`, `ring_bond.json`, and the databases contain personal data /
+  secrets. They are gitignored — keep them that way.
+
+> This project is not affiliated with, associated with, or endorsed by
+> Oura Health Oy. It reads a ring **you own** using hardware **you own**, for
+> personal data access. Use at your own risk.
