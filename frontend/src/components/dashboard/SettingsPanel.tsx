@@ -6,6 +6,7 @@ import { X, Loader2, AlertCircle, Download, Copy, Upload } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { api, type AutomationStatusResponse } from '@/lib/api';
+import { ClaudeConnect } from './ClaudeConnect';
 
 interface SettingsPanelProps {
     onClose: () => void;
@@ -365,6 +366,11 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                                     <div key={i}>{log}</div>
                                 ))}
                             </div>
+                        </div>
+
+                        {/* AI Analyst — Claude OAuth */}
+                        <div className="pt-4 border-t">
+                            <ClaudeConnect />
                         </div>
 
                         {/* Session Management (Bottom) */}
