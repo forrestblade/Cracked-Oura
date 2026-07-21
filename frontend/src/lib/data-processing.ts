@@ -130,14 +130,13 @@ export function normalizeTimeSeriesData(
     }
 
     // 1. Detect Data Type (Daily vs Intraday)
-    // 1. Detect Data Type (Daily vs Intraday)
     let isIntraday = false;
     let isFlatIntraday = false;
 
     if (data && data.length > 0) {
         let firstVal = data[0][primaryKey];
         if (typeof firstVal === 'string') {
-            try { firstVal = JSON.parse(firstVal); } catch (e) { }
+            try { firstVal = JSON.parse(firstVal); } catch { /* not JSON */ }
         }
         const isIntradayNested = Array.isArray(firstVal) || (typeof firstVal === 'object' && firstVal !== null && Array.isArray((firstVal as any).items));
         isFlatIntraday = data[0]?.date?.includes('T');
@@ -153,9 +152,10 @@ export function normalizeTimeSeriesData(
         let startDateStr = sorted.length > 0 ? sorted[0].date.split('T')[0] : (requestedStart || new Date().toISOString().split('T')[0]);
         let endDateStr = sorted.length > 0 ? sorted[sorted.length - 1].date.split('T')[0] : (requestedEnd || new Date().toISOString().split('T')[0]);
 
-        // Override with requested dates if provided
-        if (requestedStart) startDateStr = requestedStart;
-        if (requestedEnd) endDateStr = requestedEnd;
+        // Override with requested dates if provided (strip any time part —
+        // the daily branch works on whole days only)
+        if (requestedStart) startDateStr = requestedStart.split('T')[0];
+        if (requestedEnd) endDateStr = requestedEnd.split('T')[0];
 
         const filledData: TimeSeriesPoint[] = [];
         let current = parseISO(startDateStr);
@@ -222,7 +222,7 @@ export function normalizeTimeSeriesData(
         dayData = data[targetIndex];
         let val = dayData[primaryKey];
         if (typeof val === 'string') {
-            try { val = JSON.parse(val); } catch (e) { }
+            try { val = JSON.parse(val); } catch { /* not JSON */ }
         }
         rawItems = Array.isArray(val) ? val : (val as any)?.items;
     }
@@ -263,8 +263,13 @@ export function normalizeTimeSeriesData(
             }
             if (requestedEnd) {
                 const endDate = parseISO(requestedEnd);
-                // End of day (23:59:59 +)
-                endTimeMs = addDays(endDate, 1).getTime() - 1;
+                if (requestedEnd.includes('T')) {
+                    // Datetime-precision end (sub-day rolling windows): use as-is
+                    endTimeMs = endDate.getTime();
+                } else {
+                    // Date-only end: end of that day (23:59:59 +)
+                    endTimeMs = addDays(endDate, 1).getTime() - 1;
+                }
             }
 
             // If we still don't have valid times (e.g. no data and no requested range), bail

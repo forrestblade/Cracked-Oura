@@ -7,7 +7,9 @@ export interface RingStatusData {
     available: boolean;
     indicator: 'ok' | 'syncing' | 'stale' | 'error';
     syncing: boolean;
+    live?: boolean;
     phase?: string | null;
+    attempt?: number | null;
     battery?: number | null;
     last_sync_ok?: boolean | null;
     last_sync_time?: string | null;
@@ -29,6 +31,17 @@ const LABEL: Record<string, string> = {
     error: 'Ring offline',
 };
 
+const PHASE_LABEL: Record<string, string> = {
+    connecting: 'connecting',
+    retry_wait: 'retrying',
+    connected: 'connected',
+    draining: 'pulling data',
+    ingesting: 'saving',
+    live: 'live',
+    reconnect_wait: 'reconnecting',
+    dongle_reset: 'resetting dongle',
+};
+
 function agoText(iso?: string | null): string {
     if (!iso) return 'never';
     const ms = Date.now() - new Date(iso).getTime();
@@ -42,6 +55,7 @@ function agoText(iso?: string | null): string {
 
 export const RingStatus = () => {
     const [status, setStatus] = useState<RingStatusData | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
 
     const refresh = useCallback(() => {
         api.getRingStatus()
@@ -68,7 +82,13 @@ export const RingStatus = () => {
     ].filter(Boolean).join(' · ');
 
     const onSync = () => {
-        api.ringSyncNow().then(refresh).catch(() => refresh());
+        api.ringSyncNow()
+            .then((r: { message?: string }) => { setNotice(r?.message || 'Sync started.'); refresh(); })
+            .catch((e: unknown) => {
+                setNotice(e instanceof Error ? e.message : 'Sync unavailable.');
+                refresh();
+            });
+        setTimeout(() => setNotice(null), 10000);
     };
 
     return (
@@ -77,7 +97,9 @@ export const RingStatus = () => {
                 <Bluetooth className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className={`h-2.5 w-2.5 rounded-full ${DOT_COLOR[ind] || 'bg-gray-500'}`} />
                 <span className="text-xs text-muted-foreground hidden sm:inline">
-                    {LABEL[ind] || ind}
+                    {status.live ? 'Ring live' : (LABEL[ind] || ind)}
+                    {ind === 'syncing' && status.phase &&
+                        ` · ${PHASE_LABEL[status.phase] || status.phase}${status.attempt ? ` (try ${status.attempt})` : ''}`}
                     {status.battery != null && ` · ${status.battery}%`}
                     {ind !== 'syncing' && ` · ${agoText(status.last_sync_time)}`}
                 </span>
@@ -87,11 +109,16 @@ export const RingStatus = () => {
                 size="sm"
                 className="gap-1.5"
                 onClick={onSync}
-                disabled={status.syncing}
+                disabled={status.live === true}
             >
-                <RefreshCw className={`h-3.5 w-3.5 ${status.syncing ? 'animate-spin' : ''}`} />
-                {status.syncing ? 'Syncing' : 'Sync now'}
+                <RefreshCw className={`h-3.5 w-3.5 ${status.syncing && !status.live ? 'animate-spin' : ''}`} />
+                {status.live ? 'Live' : (status.syncing ? 'Syncing' : 'Sync now')}
             </Button>
+            {notice && (
+                <span className="text-[10px] text-muted-foreground max-w-[260px] leading-tight">
+                    {notice}
+                </span>
+            )}
         </div>
     );
 };

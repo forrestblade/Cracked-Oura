@@ -80,6 +80,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     // --- Effects ---
 
     // Load saved state
+    // Intentional hydration from persisted backend state once it loads.
+    /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
         if (savedDashboards && savedDashboards.length > 0) {
             setDashboards(savedDashboards);
@@ -90,6 +92,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             }
         }
     }, [savedDashboards, savedActiveDashboardId]);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     // Resize trigger on panel change
     useEffect(() => {

@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useMultiOuraQuery } from '@/hooks/useMultiOuraQuery';
 import { TrendChartCanvas } from './TrendChartCanvas';
 import { BarChartCanvas } from './BarChartCanvas';
 import { TableWidget } from './TableWidget';
 import type { WidgetInstance } from '@/types';
-import { subDays, subYears, format } from 'date-fns';
+import { subDays, addDays, subYears, format, parseISO } from 'date-fns';
 
 import { isIntradayKey } from "@/lib/utils";
 import { aggregateDailySeries, normalizeTimeSeriesData, pickAutoAggregationInterval } from '@/lib/data-processing';
@@ -17,9 +17,30 @@ interface SmartTrendWidgetCanvasProps {
     onUpdate?: (updates: Partial<WidgetInstance>) => void;
 }
 
+interface ResolvedRange {
+    startDate?: string;
+    endDate?: string;
+    // Exact datetime bounds (ISO) for sub-day rolling windows
+    windowStart?: string;
+    windowEnd?: string;
+}
+
 export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: SmartTrendWidgetCanvasProps) {
+    const dr = widget.config.dateRange;
+    const isSubDayWindow = dr?.type === 'relative' && !!dr.value &&
+        (dr.unit === 'hours' || dr.unit === 'minutes');
+
+    // Rolling sub-day windows: advance "now" every minute so the window
+    // slides forward and fresh data is fetched without a remount.
+    const [nowTick, setNowTick] = useState(() => Date.now());
+    useEffect(() => {
+        if (!isSubDayWindow) return;
+        const id = setInterval(() => setNowTick(Date.now()), 60_000);
+        return () => clearInterval(id);
+    }, [isSubDayWindow]);
+
     // Calculate date range based on config
-    const { startDate, endDate } = useMemo(() => {
+    const { startDate, endDate, windowStart, windowEnd } = useMemo((): ResolvedRange => {
         const primaryKey = widget.config.dataKey || '';
         if (primaryKey && isIntradayKey(primaryKey)) {
             // Force date-only format to avoid start_datetime/end_datetime queries which cause freezes
@@ -57,12 +78,21 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
 
                 if (value && unit) {
                     if (unit === 'hours' || unit === 'minutes') {
-                        // Sub-day windows: the API filters by whole days, so
-                        // fetch yesterday..today and fine-filter client-side
-                        // (see timeFilteredData below).
+                        // Sub-day rolling window: the API filters by whole
+                        // days, so fetch every day the window touches (this
+                        // handles crossing midnight), then trim to the exact
+                        // window via windowStart/windowEnd.
+                        const unitMs = unit === 'hours' ? 3_600_000 : 60_000;
+                        const endMs = anchor === 'selected_date'
+                            // End of the selected day for historical windows
+                            ? addDays(parseISO(date.split('T')[0]), 1).getTime() - 1
+                            : nowTick;
+                        const startMs = endMs - value * unitMs;
                         return {
-                            startDate: format(subDays(end, 1), 'yyyy-MM-dd'),
-                            endDate: format(end, 'yyyy-MM-dd')
+                            startDate: format(new Date(startMs), 'yyyy-MM-dd'),
+                            endDate: format(new Date(endMs), 'yyyy-MM-dd'),
+                            windowStart: new Date(startMs).toISOString(),
+                            windowEnd: new Date(endMs).toISOString()
                         };
                     }
                     let start = end;
@@ -102,7 +132,7 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
                 // Default to last 7 days relative to today for new widgets
                 return { startDate: format(subDays(new Date(), 7), 'yyyy-MM-dd'), endDate: today };
         }
-    }, [widget.config.dateRange, date, widget.config.dataKey]);
+    }, [widget.config.dateRange, date, widget.config.dataKey, nowTick, chartType]);
 
     // Determine keys to fetch
     const keysToFetch = useMemo(() => {
@@ -112,7 +142,12 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
         return widget.config.dataKey ? [widget.config.dataKey] : [];
     }, [widget.config.dataKeys, widget.config.dataKey]);
 
-    const { data, loading, error } = useMultiOuraQuery(keysToFetch, startDate, endDate);
+    // For rolling windows, refetch every minute (nowTick changes but the
+    // whole-day fetch params usually don't — refreshKey forces the refetch).
+    const { data, loading, error } = useMultiOuraQuery(
+        keysToFetch, startDate, endDate,
+        isSubDayWindow ? Math.floor(nowTick / 60_000) : 0
+    );
 
     // Intraday Logic (Simplified for Canvas Test)
     const [selectedDayIndex] = useState<number | null>(null);
@@ -130,29 +165,26 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
             data,
             primaryKey,
             selectedDayIndex,
-            isSleepDetailed ? undefined : startDate,
-            isSleepDetailed ? undefined : endDate
+            isSleepDetailed ? undefined : (windowStart ?? startDate),
+            isSleepDetailed ? undefined : (windowEnd ?? endDate)
         );
-    }, [data, selectedDayIndex, keysToFetch, startDate, endDate]);
+    }, [data, selectedDayIndex, keysToFetch, startDate, endDate, windowStart, windowEnd]);
 
-    // Sub-day (hours/minutes) relative windows: fine-filter fetched points
-    // client-side, since the API only supports whole-day bounds.
+    // Sub-day rolling windows: trim to the EXACT window on both ends — the
+    // API only supports whole-day bounds, and without the upper bound the
+    // chart pads empty future slots out to midnight.
     const timeFilteredData = useMemo(() => {
-        const dr = widget.config.dateRange;
-        if (dr?.type !== 'relative' || !dr.value ||
-            (dr.unit !== 'hours' && dr.unit !== 'minutes')) {
-            return processedData;
-        }
-        const unitMs = dr.unit === 'hours' ? 3_600_000 : 60_000;
-        const cutoff = Date.now() - dr.value * unitMs;
+        if (!windowStart || !windowEnd) return processedData;
+        const startMs = new Date(windowStart).getTime();
+        const endMs = new Date(windowEnd).getTime();
         return {
             ...processedData,
             data: processedData.data.filter((p: any) => {
                 const t = new Date(p.date).getTime();
-                return !isNaN(t) && t >= cutoff;
+                return !isNaN(t) && t >= startMs && t <= endMs;
             })
         };
-    }, [processedData, widget.config.dateRange]);
+    }, [processedData, windowStart, windowEnd]);
 
     const aggregatedData = useMemo(() => {
         if (!timeFilteredData.data.length) return timeFilteredData;
@@ -179,7 +211,9 @@ export function SmartTrendWidgetCanvas({ widget, date, chartType = 'area' }: Sma
         );
     }
 
-    if (loading) return <div className="flex items-center justify-center h-full text-xs text-muted-foreground">Loading...</div>;
+    // Only block the UI on the FIRST load — rolling-window refetches (every
+    // minute) keep showing the previous chart instead of flashing "Loading".
+    if (loading && data.length === 0) return <div className="flex items-center justify-center h-full text-xs text-muted-foreground">Loading...</div>;
     if (error) return <div className="flex items-center justify-center h-full text-xs text-destructive">Error: {error}</div>;
 
     if (aggregatedData.data.length === 0) {

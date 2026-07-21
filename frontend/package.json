@@ -10,7 +10,7 @@
     "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
     "dev:react": "vite",
     "dev:electron": "wait-on tcp:5173 && tsc -p electron/tsconfig.json && echo '{\"type\":\"commonjs\"}' > dist-electron/package.json && NODE_ENV=development electron .",
-    "build:backend": "cd ../backend && ./venv/bin/python -m PyInstaller --noconfirm build.spec && cd ../frontend",
+    "build:backend": "cd ../backend && { test -x venv/Scripts/python.exe && venv/Scripts/python.exe -m PyInstaller --noconfirm build.spec || ./venv/bin/python -m PyInstaller --noconfirm build.spec; }",
     "build": "node -e \"require('fs').rmSync('dist', {recursive: true, force: true})\" && npm run build:backend && tsc -b && vite build && tsc -p electron/tsconfig.json && echo '{\"type\":\"commonjs\"}' > dist-electron/package.json && electron-builder",
     "lint": "eslint .",
     "preview": "vite preview"

@@ -62,6 +62,9 @@ export function JSONWidget({ data, date, fetchFullDump }: JSONWidgetProps) {
     const [fullData, setFullData] = useState<any>(null);
     const [loading, setLoading] = useState(false);
 
+    // Standard fetch-on-mount pattern; the sync setLoading(true) kickoff is
+    // intentional.
+    /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
         if (fetchFullDump && date) {
             setLoading(true);
@@ -79,6 +82,7 @@ export function JSONWidget({ data, date, fetchFullDump }: JSONWidgetProps) {
             setFullData(null);
         }
     }, [date, fetchFullDump]);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     const displayData = fetchFullDump ? fullData : data;
 

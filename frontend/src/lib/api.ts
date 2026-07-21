@@ -157,7 +157,11 @@ export const api = {
 
     ringSyncNow: async () => {
         const res = await fetch(`${BASE_URL}/api/ring/sync`, { method: 'POST' });
-        if (!res.ok) throw new Error('Failed to start ring sync');
+        if (!res.ok) {
+            let detail = 'Failed to start ring sync';
+            try { detail = (await res.json())?.detail || detail; } catch { /* noop */ }
+            throw new Error(detail);
+        }
         return res.json();
     },
 

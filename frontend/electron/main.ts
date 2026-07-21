@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 
 let mainWindow: BrowserWindow | null;
@@ -154,7 +155,7 @@ function logToDesktop(message: string) {
     try {
         const logPath = path.join(app.getPath('documents'), 'cracked_oura_electron_debug.log');
         const timestamp = new Date().toISOString();
-        require('fs').appendFileSync(logPath, `[${timestamp}] ${message}\n`);
+        fs.appendFileSync(logPath, `[${timestamp}] ${message}\n`);
     } catch (e) {
         console.error("Failed to write to log file", e);
     }
@@ -167,13 +168,14 @@ function startPythonBackend() {
 
     if (isDev) {
         logToDesktop("Running in DEV mode");
-        // Run with uvicorn via python -m
+        // Run with uvicorn via python -m.
+        // NO --reload: on Windows the reloader wedges and orphans workers
+        // that keep serving stale code on :8000 (SESSION-HANDOFF gotcha #1).
         pythonProcess = spawn(exePath, [
             '-m', 'uvicorn',
             'backend.src.api.main:app',
             '--host', '127.0.0.1',
-            '--port', '8000',
-            '--reload'
+            '--port', '8000'
         ], {
             cwd: path.join(__dirname, '../../'),
             stdio: 'inherit'
@@ -182,7 +184,7 @@ function startPythonBackend() {
         logToDesktop("Running in PROD mode");
         // Production: Run the compiled executable directly
 
-        if (!require('fs').existsSync(exePath)) {
+        if (!fs.existsSync(exePath)) {
             logToDesktop(`CRITICAL ERROR: Backend executable NOT FOUND at ${exePath}`);
         } else {
             logToDesktop(`Backend executable confirmed at ${exePath}`);
@@ -196,8 +198,8 @@ function startPythonBackend() {
                 env: { ...process.env, PORT: '8000' } // Pass port if needed
             });
             logToDesktop(`Backend process spawned with PID: ${pythonProcess ? pythonProcess.pid : 'NULL'}`);
-        } catch (spawnError: any) {
-            logToDesktop(`CRITICAL SPAWN ERROR: ${spawnError.message}`);
+        } catch (spawnError) {
+            logToDesktop(`CRITICAL SPAWN ERROR: ${spawnError instanceof Error ? spawnError.message : String(spawnError)}`);
         }
     }
 

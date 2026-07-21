@@ -28,6 +28,9 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
     const [endDate, setEndDate] = useState("");
     const [showPoints, setShowPoints] = useState(false);
 
+    // Intentional prop->state hydration: the editor form re-seeds whenever a
+    // different widget is opened for editing.
+    /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
         if (widget) {
             setTitle(widget.title);
@@ -60,6 +63,7 @@ export function WidgetEditorPanel({ onClose, onSave, onChange, widget }: WidgetE
             setEndDate("");
         }
     }, [widget?.id]); // Only reset when widget ID changes, not on every update
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     // Helper to update parent
     const updateWidget = (updates: Partial<WidgetInstance>) => {

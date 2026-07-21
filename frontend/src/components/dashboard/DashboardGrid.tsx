@@ -39,8 +39,11 @@ export function DashboardGrid({
     data,
     selectedDate
 }: DashboardGridProps) {
-    // Fix for RGL mounting issue
+    // Fix for RGL mounting issue: render nothing on the first pass so
+    // WidthProvider measures a real DOM width. This is an intentional
+    // mount-detection pattern, so the setState-in-effect rule is waived.
     const [mounted, setMounted] = useState(false);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => setMounted(true), []);
 
     if (!mounted) return null;

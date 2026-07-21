@@ -4,16 +4,23 @@ import { api } from "@/lib/api";
 
 interface QueryResult {
     date: string;
-    value: any;
+    value: unknown;
 }
 
-export function useMultiOuraQuery(paths: string[], startDate?: string, endDate?: string) {
-    const [data, setData] = useState<any[]>([]);
+type MergedRow = { date: string; timestamp: string } & Record<string, unknown>;
+
+export function useMultiOuraQuery(paths: string[], startDate?: string, endDate?: string, refreshKey: number = 0) {
+    const [data, setData] = useState<MergedRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Stable key so the effect only re-runs when the actual path list changes,
+    // not when the caller passes a new array identity each render.
+    const pathsKey = JSON.stringify(paths ?? []);
+
     useEffect(() => {
-        if (!paths || paths.length === 0) {
+        const effectPaths: string[] = JSON.parse(pathsKey);
+        if (effectPaths.length === 0) {
             setData([]);
             return;
         }
@@ -24,7 +31,7 @@ export function useMultiOuraQuery(paths: string[], startDate?: string, endDate?:
             try {
 
                 // Fetch all paths in parallel
-                const promises = paths.map(async (path) => {
+                const promises = effectPaths.map(async (path) => {
                     const data = await api.getQuery(path, startDate, endDate);
                     return { path, data: data as QueryResult[] };
                 });
@@ -32,7 +39,7 @@ export function useMultiOuraQuery(paths: string[], startDate?: string, endDate?:
                 const results = await Promise.all(promises);
 
                 // Merge data by date
-                const mergedMap = new Map<string, any>();
+                const mergedMap = new Map<string, MergedRow>();
 
                 results.forEach(({ path, data }) => {
                     data.forEach(item => {
@@ -43,7 +50,7 @@ export function useMultiOuraQuery(paths: string[], startDate?: string, endDate?:
                                 timestamp: dateKey // Ensure timestamp exists for charts
                             });
                         }
-                        const entry = mergedMap.get(dateKey);
+                        const entry = mergedMap.get(dateKey)!;
 
                         entry[path] = item.value;
                     });
@@ -64,7 +71,7 @@ export function useMultiOuraQuery(paths: string[], startDate?: string, endDate?:
         };
 
         fetchData();
-    }, [JSON.stringify(paths), startDate, endDate]);
+    }, [pathsKey, startDate, endDate, refreshKey]);
 
     return { data, loading, error };
 }
