@@ -28,7 +28,7 @@ export const WidgetRegistry = ({ widget, data, date, onUpdate }: WidgetRegistryP
     switch (widget.type) {
         case 'score':
             const score = resolveData(widget.config.dataKey || '') || 0;
-            const scoreLabel = widget.config.dataKey || 'Score';
+            const scoreLabel = widget.title || widget.config.dataKey || 'Score';
             return (
                 <ScoreGaugeCanvas
                     score={typeof score === 'number' ? score : 0}
@@ -46,7 +46,7 @@ export const WidgetRegistry = ({ widget, data, date, onUpdate }: WidgetRegistryP
             );
         case 'metric':
             const metricValue = resolveData(widget.config.dataKey || '') || 0;
-            const metricLabel = widget.config.dataKey || 'Metric';
+            const metricLabel = widget.title || widget.config.dataKey || 'Metric';
 
             // Special formatting for duration (if dataKey contains 'total' or 'duration')
             let displayValue = metricValue;

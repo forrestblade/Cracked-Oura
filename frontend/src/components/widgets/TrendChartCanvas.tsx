@@ -118,8 +118,8 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
                             const day = date.getDate().toString().padStart(2, '0');
                             const month = (date.getMonth() + 1).toString().padStart(2, '0');
                             const year = date.getFullYear();
-                            const time = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-                            return `${day}.${month}.${year} ${time}`;
+                            const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                            return `${month}/${day}/${year} ${time}`;
                         }
 
                         // Daily
@@ -165,9 +165,9 @@ export function TrendChartCanvas({ data, dataKey, dataKeys, title, color, showPo
                             return date.toLocaleString('en-US', {
                                 month: 'short',
                                 day: 'numeric',
-                                hour: '2-digit',
+                                hour: 'numeric',
                                 minute: '2-digit',
-                                hour12: false
+                                hour12: true
                             });
                         }
 

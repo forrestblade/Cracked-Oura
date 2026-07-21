@@ -64,11 +64,11 @@ export function TableWidget({ data, dataKeys, selectedDate }: TableWidgetProps) 
         return `${m}m`;
     };
 
-    // Helper to format time (ISO -> HH:mm)
+    // Helper to format time (ISO -> h:mm AM/PM)
     const formatTime = (isoString: string) => {
         if (!isoString) return '-';
         try {
-            return format(parseISO(isoString), 'HH:mm');
+            return format(parseISO(isoString), 'h:mm a');
         } catch {
             return isoString;
         }

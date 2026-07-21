@@ -23,7 +23,7 @@ interface ScoreGaugeCanvasProps {
     className?: string;
 }
 
-export function ScoreGaugeCanvas({ score, title, color, className }: ScoreGaugeCanvasProps) {
+export function ScoreGaugeCanvas({ score, color, className }: ScoreGaugeCanvasProps) {
     const { theme } = useTheme();
     const isDark = theme === 'dark';
 
@@ -73,11 +73,12 @@ export function ScoreGaugeCanvas({ score, title, color, className }: ScoreGaugeC
             <div className="w-full h-full p-4">
                 <Doughnut data={chartData} options={options} />
             </div>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-4xl font-bold" style={{ color: finalColor }}>
+            {/* Score number only — the widget card header already shows the
+                title; rendering it here too overlapped the ring in short cards. */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <span className="text-3xl font-bold leading-none" style={{ color: finalColor }}>
                     {score}
                 </span>
-                {title && <span className="text-sm text-muted-foreground mt-1">{title}</span>}
             </div>
         </div>
     );
