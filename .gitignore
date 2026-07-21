@@ -22,3 +22,27 @@ oura-downloads/
 # IDE
 .vscode/
 .idea/
+
+# --- ringlink (local BLE ring pipeline) ---
+# Secrets & device identity — NEVER commit
+ringlink/oura_key.hex
+ringlink/oura_key.hex.*
+ringlink/ring_bond.json
+ringlink/ring_addr.txt
+# Personal biometric data & runtime state
+ringlink/events.jsonl
+ringlink/decoded_events.jsonl
+ringlink/battery_log.jsonl
+ringlink/ring_status.json
+ringlink/export/
+ringlink/sync.log
+ringlink/.sync.lock
+# Machine-specific / generated
+ringlink/venv310/
+ringlink/firmware/
+ringlink/sync_task.vbs
+ringlink/__pycache__/
+# App logs
+dev.log
+build_oura.log
+nohup.out
