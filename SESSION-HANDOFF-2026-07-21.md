@@ -123,15 +123,21 @@ unit:hours, anchor:today}`.
 
 ## OUTSTANDING WORK
 
-1. **Windows packaged app (double-click .exe)** — user's original ask, not
-   started beyond recon. Landmines found:
-   - `frontend/package.json` `build:backend` uses `./venv/bin/python` (Linux
-     path) — must be `venv/Scripts/python.exe` on Windows.
-   - PyInstaller NOT installed in `backend/venv`.
-   - `backend/src/api/ring.py` `RINGLINK = parents[3]/"ringlink"` breaks when
-     frozen (PyInstaller `_MEIPASS`) — needs env var/config override.
-   - electron-builder win target not configured (add nsis); icon.png exists.
-   - Consider: package should probably NOT use --reload backend (already true).
+1. **Windows packaged app (double-click .exe)** — ✅ BUILDS as of the
+   2026-07-21 late-evening audit session. All landmines fixed:
+   - `build:backend` now picks `venv/Scripts/python.exe` or `venv/bin/python`.
+   - PyInstaller 6.21 installed in `backend/venv`; `build.spec` modernized
+     for PyInstaller 6 (legacy kwargs removed). Frozen backend verified to
+     boot end-to-end (fails only at :8000 bind when dev backend is running).
+   - `ring.py` honors `RINGLINK_DIR` env override for frozen builds.
+   - electron-builder win/nsis target configured; installer produced at
+     `frontend/dist/Cracked Oura Setup 0.1.0.exe`.
+   - Machine gotcha: electron-builder's winCodeSign cache extraction fails
+     on Windows without Developer Mode (darwin symlinks). Fixed once by
+     manually extracting the 7z and renaming to
+     `%LOCALAPPDATA%/electron-builder/Cache/winCodeSign/winCodeSign-2.6.0`.
+   - NOT yet done: actually installing/running the packaged app end-to-end
+     (it will fight the dev backend for :8000 — test with dev stack stopped).
 2. **RingDongleReset scheduled task is broken**: currently registered as
    SYSTEM → non-elevated `schtasks /Run` gets Access denied. The installer
    (`install_dongle_reset_task.sh`) was FIXED (registers as user + /RL
