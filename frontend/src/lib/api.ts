@@ -116,6 +116,51 @@ export const api = {
         return api.getQuery(metric, startDate, endDate);
     },
 
+    // --- Claude OAuth (AI analyst) ---
+    getClaudeStatus: async () => {
+        const res = await fetch(`${BASE_URL}/api/claude/auth/status`);
+        if (!res.ok) throw new Error('Failed to fetch Claude status');
+        return res.json();
+    },
+
+    startClaudeAuth: async () => {
+        const res = await fetch(`${BASE_URL}/api/claude/auth/start`, { method: 'POST' });
+        if (!res.ok) throw new Error('Failed to start Claude auth');
+        return res.json();
+    },
+
+    finishClaudeAuth: async (code: string) => {
+        const res = await fetch(`${BASE_URL}/api/claude/auth/finish`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to finish Claude auth');
+        }
+        return res.json();
+    },
+
+    logoutClaude: async () => {
+        const res = await fetch(`${BASE_URL}/api/claude/auth/logout`, { method: 'POST' });
+        if (!res.ok) throw new Error('Failed to disconnect Claude');
+        return res.json();
+    },
+
+    // --- Local BLE ring (ringlink) ---
+    getRingStatus: async () => {
+        const res = await fetch(`${BASE_URL}/api/ring/status`);
+        if (!res.ok) throw new Error('Failed to fetch ring status');
+        return res.json();
+    },
+
+    ringSyncNow: async () => {
+        const res = await fetch(`${BASE_URL}/api/ring/sync`, { method: 'POST' });
+        if (!res.ok) throw new Error('Failed to start ring sync');
+        return res.json();
+    },
+
     // --- Layout ---
     getLayout: async () => {
         const res = await fetch(`${BASE_URL}/api/dashboard`);

@@ -3,6 +3,7 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { Button } from "@/components/ui/button";
 import { Edit2, Check } from "lucide-react";
+import { RingStatus } from "@/components/RingStatus";
 import { SettingsPanel } from "@/components/dashboard/SettingsPanel";
 import { WidgetEditorPanel } from "@/components/dashboard/WidgetEditorPanel";
 import { ChatPanel } from "@/components/dashboard/ChatPanel";
@@ -100,9 +101,11 @@ function DashboardApp() {
       onChatPageSelect={() => setActiveView('chat-page')}
 
       headerActions={
-        activeView === 'dashboard' ? (
-          <>
-            {isEditing && (
+        <>
+          <RingStatus />
+          {activeView === 'dashboard' ? (
+            <>
+              {isEditing && (
               <Button onClick={() => startEditingWidget()} variant="secondary" size="sm">
                 Add Widget
               </Button>
@@ -121,8 +124,9 @@ function DashboardApp() {
               {isEditing ? <Check className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
               {isEditing ? "Done Editing" : "Edit Layout"}
             </Button>
-          </>
-        ) : null
+            </>
+          ) : null}
+        </>
       }
     >
 
