@@ -37,6 +37,10 @@ ringlink/ring_status.json
 ringlink/export/
 ringlink/sync.log
 ringlink/.sync.lock
+ringlink/.daemon.lock
+ringlink/daemon.log
+ringlink/ring_cursor.txt
+ringlink/soft_reset.request
 # Machine-specific / generated
 ringlink/venv310/
 ringlink/firmware/
@@ -45,4 +49,10 @@ ringlink/__pycache__/
 # App logs
 dev.log
 build_oura.log
+backend_server.log
 nohup.out
+
+# Build output
+frontend/dist-electron/
+backend/dist/
+backend/build/
