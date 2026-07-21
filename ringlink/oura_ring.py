@@ -47,6 +47,7 @@ from pc_ble_driver_py.ble_driver import (  # noqa: E402
     BLEConfigConnGatt,
 )
 from pc_ble_driver_py.ble_adapter import BLEAdapter  # noqa: E402
+from pc_ble_driver_py.ble_driver import driver as raw_driver  # noqa: E402  (swig module)
 from pc_ble_driver_py.observers import BLEDriverObserver, BLEAdapterObserver  # noqa: E402
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes  # noqa: E402
@@ -149,20 +150,67 @@ class OuraRing(BLEDriverObserver, BLEAdapterObserver):
     def connect(self, name_contains: str = "Oura", seconds: int = 30, attempts: int = 4):
         """Scan until a matching device appears, then connect + discover + subscribe.
 
-        Link establishment can fail at the radio level
-        (BLEHci.conn_failed_to_be_established) — retry the scan+connect cycle."""
+        Retries the full scan+connect cycle on BOTH failure modes:
+        - scan timeout: the ring advertises intermittently (long adv intervals
+          to save battery, especially after extended idle) — a single scan
+          window can easily miss it, so rescan instead of giving up;
+        - radio-level link failures (BLEHci.conn_failed_to_be_established)."""
         last_err = None
         for attempt in range(1, attempts + 1):
             self._target = name_contains.lower()
+            self._connecting_addr = None
+            self.devices = {}  # per-attempt count for deaf-dongle detection
             params = BLEGapScanParams(interval_ms=200, window_ms=200, timeout_s=seconds)
             self.adapter.driver.ble_gap_scan_start(scan_params=params)
             try:
-                self.conn = self.conn_q.get(timeout=seconds)
+                # +5s beyond the scan window: if the adv arrives near the end
+                # of the scan, link establishment still needs a few seconds.
+                self.conn = self.conn_q.get(timeout=seconds + 5)
             except Empty:
                 self._target = None
-                raise RuntimeError(
-                    f"no device with name containing {name_contains!r} found in {seconds}s"
-                )
+                try:
+                    self.adapter.driver.ble_gap_scan_stop()
+                except Exception:
+                    pass
+                # CRITICAL: if an adv arrived near the end of the scan, a
+                # connect may still be PENDING (or may land right after this
+                # timeout). An abandoned connect leaves the RING in a
+                # connection — a connected ring stops advertising entirely
+                # (open_ring §11), so every later scan fails "not found"
+                # while the ring sits inches away. Cancel + drop it.
+                if self._connecting_addr is not None:
+                    try:
+                        raw_driver.sd_ble_gap_connect_cancel(
+                            self.adapter.driver.rpc_adapter)
+                    except Exception:
+                        pass
+                    try:
+                        leftover = self.conn_q.get_nowait()
+                        if leftover is not None:
+                            self.adapter.disconnect(leftover)
+                            time.sleep(0.3)
+                    except Empty:
+                        pass
+                    except Exception:
+                        pass
+                    self._connecting_addr = None
+                seen = len(self.devices)
+                if seen == 0:
+                    # A scan that hears NOTHING (ambient BLE is everywhere)
+                    # means the dongle radio is deaf — a wedge, not a quiet
+                    # ring. The marker routes this into the USB-reset ladder.
+                    last_err = RuntimeError(
+                        f"dongle heard nothing in {seconds}s scan (deaf radio?)")
+                else:
+                    last_err = RuntimeError(
+                        f"no device with name containing {name_contains!r} "
+                        f"found in {seconds}s ({seen} other devices seen)")
+                if attempt == attempts:
+                    raise last_err
+                print(f"[ble] scan attempt {attempt}/{attempts}: ring not seen "
+                      f"({seen} others heard); rescanning")
+                time.sleep(2.0)
+                continue
             try:
                 time.sleep(0.3)  # let a failed link report its disconnect first
                 if self.conn is None:
@@ -184,8 +232,18 @@ class OuraRing(BLEDriverObserver, BLEAdapterObserver):
                 return self.conn
             except Exception as e:
                 last_err = e
-                if self.conn is not None or attempt == attempts:
+                if attempt == attempts:
                     raise
+                # Drop a half-open link before retrying — a live-but-broken
+                # conn (e.g. subscribe/pairing failure) used to abort the
+                # whole sync here instead of retrying.
+                if self.conn is not None:
+                    try:
+                        self.adapter.disconnect(self.conn)
+                        time.sleep(0.5)
+                    except Exception:
+                        pass
+                    self.conn = None
                 print(f"[ble] connect attempt {attempt}/{attempts} failed ({e}); retrying")
                 time.sleep(1.0)
         raise RuntimeError(f"connect failed after {attempts} attempts: {last_err}")
@@ -232,6 +290,27 @@ class OuraRing(BLEDriverObserver, BLEAdapterObserver):
                 break
             except Exception as e:
                 self._check_link()
+                if "INVALID_STATE" in str(e):
+                    # SMP collision: the RING initiated its own security
+                    # procedure (it still holds a bond) and our authenticate
+                    # raced it. Let the ring-side procedure settle, then just
+                    # subscribe — the link is typically already encrypted.
+                    print("[ble] SMP collision (ring-initiated security); "
+                          "waiting for it to settle")
+                    time.sleep(3.0)
+                    self._check_link()
+                    try:
+                        self.adapter.enable_notification(self.conn, UUID_NOTIFY)
+                        self._save_bond()
+                        return
+                    except Exception as e2:
+                        self._check_link()
+                        if attempt == 2:
+                            raise
+                        print(f"[ble] subscribe after SMP wait failed ({e2}); "
+                              "retrying pairing")
+                        time.sleep(1.0)
+                        continue
                 if attempt == 2:
                     raise
                 print(f"[ble] pairing attempt failed ({e}); retrying once")
@@ -397,6 +476,39 @@ class OuraRing(BLEDriverObserver, BLEAdapterObserver):
         if p[1] != 0x00:
             raise RuntimeError(f"auth failed: {results.get(p[1], hex(p[1]))}")
 
+    def engage_data_plane(self):
+        """Phone steps 12-15 after auth (open_ring §6.1, btsnoop-verified):
+        subscribe enable (16 01 02), state_cmd (1c 01 bf — engages the data
+        plane), then the capability dance. Without subscribe + state_cmd,
+        some event categories drift quiescent and the ring stops emitting
+        HR/temp records (§6.6)."""
+        for req, desc in ((bytes([0x16, 0x01, 0x02]), "subscribe enable"),
+                          (bytes([0x1C, 0x01, 0xBF]), "state_cmd")):
+            try:
+                self.request(req, timeout=4.0)
+            except RuntimeError:
+                if self.verbose:
+                    print(f"[session] {desc}: no response (continuing)")
+        for page in (b"\x2f\x02\x20\x02", b"\x2f\x02\x20\x04",
+                     b"\x2f\x02\x03\x01", b"\x2f\x02\x20\x0b",
+                     b"\x2f\x02\x20\x0d", b"\x2f\x02\x20\x03",
+                     b"\x2f\x02\x20\x10"):
+            try:
+                self.request(page, timeout=3.0)
+            except RuntimeError:
+                pass
+
+    def data_flush(self):
+        """28 01 00 — release flash-buffered events to the BLE stream
+        (open_ring §6.5). Must precede GetEvent in every polling session or
+        the freshest samples stay buffered and the drain returns stale data."""
+        try:
+            self.request(bytes([0x28, 0x01, 0x00]),
+                         done=lambda t, p: t == 0x29, timeout=5.0)
+        except RuntimeError:
+            if self.verbose:
+                print("[session] data_flush: no ack (continuing)")
+
     def firmware_info(self):
         frames = self.request(bytes([0x08, 0x03, 0x00, 0x00, 0x00]),
                               done=lambda t, p: t == 0x09)
@@ -415,8 +527,28 @@ class OuraRing(BLEDriverObserver, BLEAdapterObserver):
         return None
 
     def sync_time(self):
-        payload = int(time.time()).to_bytes(8, "little") + b"\x00"
-        self.request(frame(0x12, payload), done=lambda t, p: t == 0x13)
+        """Set the ring clock to the REAL current time (0x12).
+
+        Payload per ringverse BLE.md: unix seconds (u64 LE) + timezone
+        offset in HALF-HOURS from UTC (signed byte; the official app sends
+        getOffset()/1800000). The tz byte matters for the ring's own local
+        day boundaries (sleep analysis). Logs the 0x13 echo so a rejected/
+        ignored time-sync is visible instead of silent."""
+        now = int(time.time())
+        offset_s = -(time.altzone if time.localtime().tm_isdst else time.timezone)
+        tz_half_hours = int(round(offset_s / 1800)) & 0xFF
+        payload = now.to_bytes(8, "little") + bytes([tz_half_hours])
+        frames = self.request(frame(0x12, payload), done=lambda t, p: t == 0x13)
+        p = self.find(frames, 0x13)
+        if p is not None and len(p) >= 4:
+            dev_ts = int.from_bytes(p[0:4], "little")
+            if abs(dev_ts - now) <= 300:
+                print(f"[time] ring clock confirmed (drift {dev_ts - now:+d}s)")
+            else:
+                # 0x13 may echo an internal counter rather than unix time —
+                # informational only; the decode-side anchor validator is
+                # the real safety net for a wrong ring clock.
+                print(f"[time] ring 0x13 echo: {dev_ts} (host {now})")
 
     def drain_events(self, start_ds: int = 0, on_batch=None):
         """Fetch history events from cursor (deciseconds). Yields raw event frames."""
@@ -448,6 +580,16 @@ class OuraRing(BLEDriverObserver, BLEAdapterObserver):
                     on_batch(cursor)
             if not summary or summary["bytes_left"] == 0 or not progressed:
                 break
+        # ack-fetch (open_ring §10 step 10, phone-verified): GetEvent with
+        # max_events=0 and the final cursor tells the ring the events were
+        # consumed — without it, the same events stream again next session.
+        try:
+            payload = (cursor.to_bytes(4, "little") + bytes([0x00])
+                       + (0xFFFFFFFF).to_bytes(4, "little"))
+            self.request(frame(0x10, payload), done=lambda t, p: t == 0x11,
+                         timeout=10)
+        except RuntimeError:
+            pass
 
     # --- observers ---------------------------------------------------------
     def on_gap_evt_adv_report(self, ble_driver, conn_handle, peer_addr, rssi,
@@ -480,6 +622,20 @@ class OuraRing(BLEDriverObserver, BLEAdapterObserver):
                                            conn_sup_timeout_ms=6000,
                                            slave_latency=0)
             self.adapter.connect(peer_addr, conn_params=conn_params, tag=CFG_TAG)
+
+    def on_conn_param_update_request(self, ble_adapter, conn_handle, conn_params):
+        """ACCEPT the ring's connection-parameter renegotiation.
+
+        The ring requests battery-friendlier parameters while measuring.
+        pc-ble-driver's default is to IGNORE the request (no observer
+        replies) — the ring then terminates the link mid-session and can
+        sulk before re-advertising. Non-blocking accept (we're on the event
+        thread — the adapter's waiting variant would deadlock)."""
+        try:
+            self.adapter.driver.ble_gap_conn_param_update(conn_handle, conn_params)
+            print("[ble] accepted ring conn-param update request")
+        except Exception as e:
+            print(f"[ble] conn-param accept failed ({e})")
 
     def on_gap_evt_connected(self, ble_driver, conn_handle, peer_addr, role, conn_params):
         self.conn_q.put(conn_handle)
@@ -536,7 +692,7 @@ def main():
     ap.add_argument("--name", default="Oura", help="advertised name substring (default: Oura)")
     ap.add_argument("--verbose", "-v", action="store_true")
     ap.add_argument("command", choices=["ports", "scan", "pair", "info", "battery",
-                                        "events", "raw", "probe"])
+                                        "events", "raw", "probe", "soft-reset"])
     ap.add_argument("arg", nargs="?", help="hex payload for `raw`")
     args = ap.parse_args()
 
@@ -615,6 +771,20 @@ def main():
                                         "raw": raw.hex()}) + "\n")
                     n += 1
             print(f"{n} event frame(s) appended to {EVENTS_FILE}")
+        elif args.command == "soft-reset":
+            # open_ring PROTOCOL.md §6.8: `0e 01 ff` = soft_reset_req — the ring
+            # acks (0x0f) then reboots itself 22-35 s later. Diagnostic tool for
+            # a wedged/crash-looped ring (does NOT touch pairing or the auth
+            # key). NOTE: ringverse maps 0x0e as "start firmware update"; the
+            # 0xff argument is the empirically-verified abort/reset form.
+            frames = ring.request(bytes([0x0E, 0x01, 0xFF]),
+                                  done=lambda t, p: t == 0x0F, timeout=5.0)
+            p = ring.find(frames, 0x0F)
+            if p is not None and (len(p) == 0 or p[-1] == 0x00):
+                print("soft reset accepted — ring will reboot in ~22-35 s")
+            else:
+                print(f"unexpected ack: {p.hex() if p else 'none'} — "
+                      "ring may not reboot")
         elif args.command == "raw":
             if not args.arg:
                 sys.exit("raw requires a hex payload")

@@ -1,5 +1,10 @@
 # Handoff — Local Oura Ring 4 data access over BLE
 
+> **2026-07-21 EVENING: read `../SESSION-HANDOFF-2026-07-21.md` FIRST.**
+> Ring firmware crash incident + architecture change to a persistent
+> connection daemon (`ring_daemon.py`). Several sections below describe the
+> old poll-based sync and are superseded.
+
 > **THIS COPY (Cracked-Oura/ringlink/HANDOFF.md) IS NOW AUTHORITATIVE.**
 > `ring-local/` is legacy; everything was consolidated into this repo 2026-07-21.
 

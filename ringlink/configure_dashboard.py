@@ -76,15 +76,15 @@ DAILY = [
 ]
 
 RIGHTNOW = [
-    w("1", "trend", "Heart rate — last hour", 0, 0, 6, 5,
+    w("1", "trend", "Heart rate — last 3 hrs", 0, 0, 6, 5,
       dataKey="heart_rate.bpm", dataKeys=["heart_rate.bpm"],
-      color=RED, showPoints=True, dateRange=rel(1, "hours")),
-    w("2", "trend", "Skin temp (°F) — last hour", 6, 0, 6, 5,
+      color=RED, showPoints=True, dateRange=rel(3, "hours")),
+    w("2", "trend", "Skin temp (°F) — last 3 hrs", 6, 0, 6, 5,
       dataKey="temperature.skin_temp", dataKeys=["temperature.skin_temp"],
-      color=AMBER, showPoints=True, dateRange=rel(1, "hours")),
-    w("3", "trend", "Battery — last hour", 0, 5, 12, 4,
+      color=AMBER, showPoints=True, dateRange=rel(3, "hours")),
+    w("3", "trend", "Battery — last 3 hrs", 0, 5, 12, 4,
       dataKey="ring_battery.level", dataKeys=["ring_battery.level"],
-      color=GREEN, showPoints=True, dateRange=rel(1, "hours")),
+      color=GREEN, showPoints=True, dateRange=rel(3, "hours")),
 ]
 
 LONGTERM = [
