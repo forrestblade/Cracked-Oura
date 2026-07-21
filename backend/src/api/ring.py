@@ -7,6 +7,7 @@ exposes it plus a manual sync trigger for the frontend indicator.
 """
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -19,12 +20,19 @@ logger = logging.getLogger("RingLink")
 
 ring_router = APIRouter()
 
-# backend/src/api/ring.py -> repo root -> ringlink/
-RINGLINK = Path(__file__).resolve().parents[3] / "ringlink"
+# backend/src/api/ring.py -> repo root -> ringlink/. The relative walk breaks
+# in a frozen (PyInstaller) build, so allow an env/config override.
+_default_ringlink = Path(__file__).resolve().parents[3] / "ringlink"
+RINGLINK = Path(os.environ.get("RINGLINK_DIR", str(_default_ringlink)))
 STATUS_FILE = RINGLINK / "ring_status.json"
 LOCK_DIR = RINGLINK / ".sync.lock"
 SYNC_SCRIPT = RINGLINK / "sync_ring.py"
 VENV_PY = RINGLINK / "venv310" / "Scripts" / "python.exe"
+
+# A healthy sync run now finishes in < 3 min (fail-fast connect cycles +
+# incremental drains). Beyond these windows the run is considered dead.
+LOCK_STALE_S = 420        # lock older than this = crashed run; allow new sync
+HEARTBEAT_STALE_S = 240   # status not updated for this long = wedged
 
 
 def _read_status() -> dict:
@@ -34,12 +42,50 @@ def _read_status() -> dict:
         return {}
 
 
+def _pid_alive(pid: int) -> bool:
+    try:
+        import ctypes
+        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if h:
+            ctypes.windll.kernel32.CloseHandle(h)
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def _daemon_alive() -> bool:
+    lock = RINGLINK / ".daemon.lock"
+    if not lock.exists():
+        return False
+    try:
+        return _pid_alive(int(lock.read_text().strip()))
+    except Exception:
+        return False
+
+
 @ring_router.get("/api/ring/status")
 def ring_status():
     """Current ring link state for the UI indicator."""
     st = _read_status()
-    lock_active = LOCK_DIR.exists() and (time.time() - LOCK_DIR.stat().st_mtime) < 900
-    syncing = st.get("state") == "syncing" and lock_active
+    lock_active = LOCK_DIR.exists() and (time.time() - LOCK_DIR.stat().st_mtime) < LOCK_STALE_S
+
+    heartbeat_fresh = False
+    if st.get("updated_at"):
+        try:
+            hb = datetime.fromisoformat(st["updated_at"])
+            heartbeat_fresh = (datetime.now(timezone.utc) - hb).total_seconds() < HEARTBEAT_STALE_S
+        except ValueError:
+            pass
+
+    live = st.get("state") == "live" and _daemon_alive()
+    live_connected = live and heartbeat_fresh and \
+        st.get("phase") in ("live", "ingesting")
+    wedged = ((st.get("state") == "syncing" and lock_active) or
+              (st.get("state") == "live" and _daemon_alive())) and \
+        not heartbeat_fresh
+    syncing = (st.get("state") == "syncing" and lock_active and heartbeat_fresh) or \
+        (live and heartbeat_fresh and not live_connected)
 
     # Derive a coarse indicator the frontend can color directly.
     last_sync = st.get("last_sync_time")
@@ -51,7 +97,11 @@ def ring_status():
         except ValueError:
             pass
 
-    if syncing:
+    if wedged:
+        indicator = "error"
+    elif live_connected:
+        indicator = "ok"          # persistent link up, data flowing
+    elif syncing:
         indicator = "syncing"
     elif st.get("last_sync_ok") and not stale:
         indicator = "ok"          # synced within ~2 scheduled cycles
@@ -64,13 +114,16 @@ def ring_status():
         "available": SYNC_SCRIPT.exists() and VENV_PY.exists(),
         "indicator": indicator,
         "syncing": syncing,
+        "live": live_connected,
         "phase": st.get("phase"),
+        "attempt": st.get("attempt"),
         "battery": st.get("battery"),
         "last_seen": st.get("last_seen"),
         "last_sync_ok": st.get("last_sync_ok"),
         "last_sync_time": last_sync,
         "last_frames": st.get("last_frames"),
-        "last_error": st.get("last_error"),
+        "last_error": ("sync process wedged or killed (no heartbeat)"
+                       if wedged else st.get("last_error")),
         "updated_at": st.get("updated_at"),
     }
 
@@ -80,12 +133,21 @@ def ring_sync():
     """Manual 'Sync now': spawn the sync pipeline detached (it self-locks)."""
     if not (SYNC_SCRIPT.exists() and VENV_PY.exists()):
         raise HTTPException(status_code=503, detail="ringlink not installed")
-    if LOCK_DIR.exists() and (time.time() - LOCK_DIR.stat().st_mtime) < 900:
+    if _daemon_alive():
+        st = _read_status()
+        if st.get("connected"):
+            return {"message": "Ring is live-connected — data refreshes "
+                               "every 20 s automatically."}
+        return {"message": "Daemon is hunting — the ring's radio sleeps "
+                           "between advertising waves. Dock the ring ~5 s to "
+                           "force an instant catch; missed chart data "
+                           "back-fills automatically."}
+    if LOCK_DIR.exists() and (time.time() - LOCK_DIR.stat().st_mtime) < LOCK_STALE_S:
         raise HTTPException(status_code=409, detail="sync already running")
     try:
         creation = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         with (RINGLINK / "sync.log").open("a") as log:
-            subprocess.Popen([str(VENV_PY), str(SYNC_SCRIPT)], cwd=str(RINGLINK),
+            subprocess.Popen([str(VENV_PY), "-u", str(SYNC_SCRIPT)], cwd=str(RINGLINK),
                              stdout=log, stderr=subprocess.STDOUT,
                              creationflags=creation)
     except Exception as e:

@@ -17,10 +17,12 @@ class SleepProcessor(IngestionBase):
 
             # Handle merged fields
             recommendation = row.get('recommendation')
-            if pd.isna(recommendation): recommendation = None
-            
+            if pd.isna(recommendation):
+                recommendation = None
+
             status = row.get('status')
-            if pd.isna(status): status = None
+            if pd.isna(status):
+                status = None
 
             # SpO2 parsing
             spo2_data = self._parse_json_col(row.get('spo2_percentage'))

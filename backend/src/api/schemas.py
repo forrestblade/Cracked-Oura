@@ -1,7 +1,7 @@
 
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 # --- Daily Summaries ---
 
@@ -104,7 +104,6 @@ class SleepSessionResponse(BaseModel):
     average_heart_rate: Optional[float] = None
     average_hrv: Optional[int] = None
     
-    # Sequences converted to JSON
     # Sequences converted to JSON
     sleep_phase_5_min: Optional[List[Dict[str, Any]]] = None
     sleep_phase_30_sec: Optional[List[Dict[str, Any]]] = None

@@ -1,27 +1,24 @@
-from fastapi import FastAPI, BackgroundTasks, Request
+import asyncio
+import logging
+import os
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
+
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
 from backend.src.api.routes import router
 from backend.src.api.ring import ring_router
 from backend.src.api.claude import claude_router
-from backend.src.database import init_db
-
-import asyncio
-import logging
-from datetime import datetime, timedelta
 from backend.src.automation import automator
-from backend.src.ingestion import OuraParser
-from backend.src.database import SessionLocal
 from backend.src.config import config_manager
-import os
-from pydantic import BaseModel
-
-from contextlib import asynccontextmanager
+from backend.src.database import SessionLocal, init_db
+from backend.src.ingestion import OuraParser
+from backend.src.paths import get_user_data_dir
 
 # Configure logging
-from backend.src.paths import get_user_data_dir
-import logging
-import os
-
 log_dir = get_user_data_dir()
 log_file = os.path.join(log_dir, "backend_debug.log")
 
@@ -40,20 +37,24 @@ logger.info(f"API Starting... Logging to {log_file}")
 async def lifespan(app: FastAPI):
     # Startup
     init_db()
-    
+
     # Reset status on startup in case it was stuck
     cfg = config_manager.get_config()
     if cfg.get("status") not in ["Idle", "Error"]:
         logger.info("Startup: Resetting stuck status to Idle.")
         config_manager.update_status("Idle")
-        
-    # Start background worker
+
+    # Start background worker (keep the reference so it isn't GC'd)
     task = asyncio.create_task(background_worker())
-    
+
     yield
-    
-    # Shutdown (optional cleanup)
-    # task.cancel()
+
+    # Shutdown: stop the worker cleanly
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 app = FastAPI(
     title="Cracked Oura API",
@@ -62,17 +63,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configure CORS
-origins = [
-    "http://localhost",
-    "http://localhost:3000", # Frontend
-    "http://localhost:8000", # Backend
-]
-
+# Configure CORS. This is a localhost-only app and the frontend never sends
+# cookies, so a wildcard origin without credentials is both valid and safe
+# (wildcard + allow_credentials=True is rejected by browsers per the spec).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -110,47 +107,10 @@ async def update_automation_config(config: AutomationConfig):
         
     return {"status": "success", "message": "Configuration updated."}
 
-class OTPRequest(BaseModel):
-    otp: str
-    action: str = "run" # run, download, test
+# NOTE: /api/automation/submit-otp and /api/automation/clear-session are
+# served by routes.py (registered first, so it always won the route match).
+# The duplicate, unreachable definitions that used to live here were removed.
 
-@app.post("/api/automation/submit-otp")
-async def submit_otp(request: OTPRequest, background_tasks: BackgroundTasks):
-    """
-    Submits OTP code to the running automation session.
-    """
-    logger.info(f"Received OTP: {request.otp}, Action: {request.action}")
-    config_manager.update_status("Submitting OTP...")
-    
-    try:
-        result = await automator.submit_otp(request.otp)
-        if result["status"] == "success":
-            if request.action == "run":
-                config_manager.update_status("Login Successful! Resuming Full Run...")
-                background_tasks.add_task(run_ingestion_task, force=True)
-                return {"status": "success", "message": "OTP Accepted. Resuming full automation."}
-            
-            elif request.action == "download":
-                config_manager.update_status("Login Successful! Resuming Download...")
-                background_tasks.add_task(run_download_existing_task)
-                return {"status": "success", "message": "OTP Accepted. Resuming download."}
-            
-            elif request.action == "test":
-                config_manager.update_status("Login Successful! Session saved.")
-                await automator.cleanup()
-                return {"status": "success", "message": "OTP Accepted. Login verified."}
-            
-            else:
-                # Default fallback
-                config_manager.update_status("Login Successful!")
-                return {"status": "success", "message": "OTP Accepted."}
-
-        else:
-            config_manager.update_status(f"OTP Error: {result['message']}")
-            return {"status": "error", "message": result['message']}
-    except Exception as e:
-        config_manager.update_status(f"OTP Error: {str(e)}")
-        return {"status": "error", "message": str(e)}
 
 @app.post("/api/automation/run-now")
 async def run_automation(background_tasks: BackgroundTasks):
@@ -169,17 +129,6 @@ async def run_automation(background_tasks: BackgroundTasks):
         background_tasks.add_task(run_ingestion_task, force=True)
         return {"status": "started", "message": "Automation started."}
 
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.post("/api/automation/clear-session")
-async def clear_session():
-    """Clears the current automation session."""
-    try:
-        if await automator.clear_session():
-            config_manager.update_status("Session cleared.")
-            return {"status": "success", "message": "Session cleared. Please login again."}
-        return {"status": "info", "message": "No session found to clear."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -215,11 +164,10 @@ async def run_download_existing_task():
             await automator.initialize(headless=cfg.get("headless", True))
         
         automator.email = cfg.get("email", "")
-        
+
         # Use user data dir for downloads
-        from backend.src.paths import get_user_data_dir
         save_dir = str(get_user_data_dir())
-        
+
         result = await automator.download_existing_export(save_dir=save_dir)
         
         if isinstance(result, dict) and result.get("status") == "otp_required":
@@ -280,9 +228,8 @@ async def run_ingestion_task(force=False):
         
         # 2. Run Full Automation (Request -> Wait -> Download)
         config_manager.update_status("Running Automation...")
-        
+
         # Use user data dir for downloads
-        from backend.src.paths import get_user_data_dir
         save_dir = str(get_user_data_dir())
 
         # This function handles login, requesting, waiting, and downloading
@@ -336,12 +283,17 @@ async def process_ingestion(zip_path):
 
 async def background_worker():
     logger.info("Background worker started.")
+    # Date we last fired the daily run for. Seeded to "today" when the
+    # backend starts after today's scheduled time so a restart doesn't
+    # immediately kick off a surprise cloud-export run.
+    last_scheduled_run_date = None
+    first_check = True
     while True:
         try:
             # Check every minute if it's time to run
             now = datetime.now()
             cfg = config_manager.get_config()
-            
+
             # Calculate next run time for display
             schedule_time_str = cfg.get("schedule_time", "11:00")
             try:
@@ -351,41 +303,52 @@ async def background_worker():
                     next_run = run_today + timedelta(days=1)
                 else:
                     next_run = run_today
-                
-                config_manager.update_status(cfg.get("status", "Idle"), next_run=next_run.strftime("%Y-%m-%d %H:%M:%S"))
 
-                if now.hour == sh and now.minute == sm:
-                     await run_ingestion_task()
-                
-                # If in "Waiting" state, poll every 5 minutes            
+                # Only rewrite the config file when next_run actually changes
+                # (this used to rewrite it every 60 seconds).
+                next_run_str = next_run.strftime("%Y-%m-%d %H:%M:%S")
+                if cfg.get("next_run") != next_run_str:
+                    config_manager.update_config(next_run=next_run_str)
+
+                if first_check:
+                    first_check = False
+                    if now >= run_today:
+                        last_scheduled_run_date = now.date()
+
+                # Fire the daily run once we're past the scheduled time.
+                # Comparing >= (not ==) means a skipped/slow loop iteration
+                # can no longer silently miss the scheduled minute.
+                if now >= run_today and last_scheduled_run_date != now.date():
+                    last_scheduled_run_date = now.date()
+                    await run_ingestion_task()
+
+                # If in "Waiting" state, poll every 5 minutes
                 elif "Waiting" in cfg.get("status", ""):
                     if now.minute % 5 == 0:
                         logger.info("Background worker: Polling for export status...")
                         await run_ingestion_task()
-                     
+
             except Exception as e:
                 logger.error(f"Scheduler error: {e}")
 
             # Sleep 60 seconds
             await asyncio.sleep(60)
-                    
+
+        except asyncio.CancelledError:
+            logger.info("Background worker cancelled; shutting down.")
+            raise
         except Exception as e:
             logger.error(f"Background worker loop error: {e}")
             await asyncio.sleep(60)
 
 # Mount Static Files
-from fastapi.staticfiles import StaticFiles
-import os
-
 # Robustly find the frontend/dist directory relative to this file
-# engine/src/api/main.py -> ../../../frontend/dist
+# backend/src/api/main.py -> ../../../frontend/dist
 current_dir = os.path.dirname(os.path.abspath(__file__))
 dist_dir = os.path.join(current_dir, "../../../frontend/dist")
 
 if os.path.exists(dist_dir):
     app.mount("/", StaticFiles(directory=dist_dir, html=True), name="static")
-else:
-    pass
 
 
 if __name__ == "__main__":
@@ -399,19 +362,18 @@ if __name__ == "__main__":
             uvicorn.run(app, host="127.0.0.1", port=8000, reload=False)
         except Exception as e:
             # Emergency logging if startup fails
-            from backend.src.paths import get_user_data_dir
-            import os
             import traceback
-            
+
             try:
                 log_path = os.path.join(get_user_data_dir(), "startup_crash.log")
                 with open(log_path, "w", encoding="utf-8") as f:
                     f.write(f"Startup Crash: {e}\n")
                     f.write(traceback.format_exc())
-            except:
-                pass # Failed to write log
+            except Exception:
+                pass  # Failed to write log
             raise e
     else:
-        # Development
-        # Run the server with auto-reload
-        uvicorn.run("backend.src.api.main:app", host="0.0.0.0", port=8000, reload=True, reload_dirs=["backend"])
+        # Development. NO --reload: on Windows the reloader wedges and
+        # orphans workers that keep serving stale code on :8000
+        # (see SESSION-HANDOFF-2026-07-21.md, gotcha #1).
+        uvicorn.run("backend.src.api.main:app", host="127.0.0.1", port=8000, reload=False)

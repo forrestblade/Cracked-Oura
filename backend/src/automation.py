@@ -1,8 +1,8 @@
 import asyncio
 import os
 import logging
-from playwright.async_api import async_playwright, expect, Page, BrowserContext, Browser
-from typing import Optional, Dict, Any, Union
+from playwright.async_api import async_playwright, Page, BrowserContext, Browser
+from typing import Optional, Dict, Union
 
 from .config import config_manager
 
@@ -79,8 +79,6 @@ class OuraAutomator:
 
     async def _ensure_browser_installed(self, force=False):
         """Checks if Chromium is installed and installs it if missing."""
-        import sys
-        
         # Check if we suspect it's missing (simple check: is the dir empty?)
         if not force and os.path.exists(self.browser_dir) and os.listdir(self.browser_dir):
             return
@@ -188,7 +186,8 @@ class OuraAutomator:
 
     def _is_logged_in(self) -> bool:
         """Determines if user is logged in based on current URL."""
-        if not self.page: return False
+        if not self.page:
+            return False
         url = self.page.url.rstrip('/')
         return (url == self.base_url) and ("login" not in url) and ("authn" not in url)
 
@@ -382,9 +381,9 @@ class OuraAutomator:
         for _ in range(10): # 10s timeout
             try:
                 await self.page.wait_for_load_state("networkidle", timeout=2000)
-            except: 
+            except Exception:
                 pass
-                
+
             current_url = self.page.url
             if "/data-export" in current_url:
                 logger.info("Successfully arrived at data-export page.")
@@ -418,16 +417,16 @@ class OuraAutomator:
         # Find Request Button (Try likely selectors)
         target_btn = self.page.locator('[data-testid="pageSubtitle"] + button').first
         try:
-             await target_btn.wait_for(state="visible", timeout=5000)
-        except:
-             pass
+            await target_btn.wait_for(state="visible", timeout=5000)
+        except Exception:
+            pass
 
         if not await target_btn.is_visible():
             target_btn = self.page.locator('main button').first
             try:
-                 await target_btn.wait_for(state="visible", timeout=5000)
-            except:
-                 pass
+                await target_btn.wait_for(state="visible", timeout=5000)
+            except Exception:
+                pass
 
         if not await target_btn.is_visible():
             return False
@@ -446,9 +445,9 @@ class OuraAutomator:
         try:
             # We try to wait for enabled state, but don't strictly block on it in case of UI quirks
             try:
-                 await target_btn.wait_for(state="enabled", timeout=3000)
-            except:
-                 pass 
+                await target_btn.wait_for(state="enabled", timeout=3000)
+            except Exception:
+                pass
             
             logger.info("Found Request button. Clicking...")
             await target_btn.click(timeout=5000)
@@ -486,8 +485,8 @@ class OuraAutomator:
         download_btn = self.page.locator("button[aria-label='Download data']").first
         try:
             await download_btn.wait_for(state="visible", timeout=10000)
-        except:
-            pass 
+        except Exception:
+            pass
             
         if await download_btn.is_visible():
             logger.info("Download button found. Clicking...")

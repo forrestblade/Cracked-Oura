@@ -2,7 +2,8 @@ import json
 import os
 import threading
 import logging
-from typing import Dict, Any, Optional
+import uuid
+from typing import Dict, Any
 
 from .paths import get_user_data_dir
 
@@ -42,9 +43,6 @@ class ConfigManager:
             }
             self._save_file(self.config_path, default_config)
 
-        # 2. Ensure dashboard config exists (or migrate)
-        main_conf = self._load_file(self.config_path)
-        
         # 2. Ensure dashboard config exists
         if not os.path.exists(self.dashboard_path):
              # Create empty default if doesn't exist
@@ -66,7 +64,6 @@ class ConfigManager:
 
     def _save_file(self, path: str, data: Dict[str, Any]):
         """Saves data to a JSON file atomically."""
-        import uuid
         tmp_path = f"{path}.{uuid.uuid4()}.tmp"
         try:
             with open(tmp_path, 'w', encoding='utf-8') as f:
@@ -100,8 +97,9 @@ class ConfigManager:
             dash_changed = False
             
             for key, value in kwargs.items():
-                if value is None: continue
-                
+                if value is None:
+                    continue
+
                 if key == "dashboard":
                     # Dashboard update
                     dash_conf["dashboard"] = value

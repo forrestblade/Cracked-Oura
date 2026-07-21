@@ -3,12 +3,11 @@ import logging
 import os
 import shutil
 import tempfile
-import json
 import traceback
 from typing import List, Optional, Any
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
@@ -20,12 +19,7 @@ from ..models import (
     Sleep, Activity, Readiness, Resilience, SleepSession, Workout, Meditation, 
     RingBattery, HeartRate, Temperature, RingConfiguration, Tag, CardiovascularAge
 )
-from .schemas import (
-    DayDataResponse,
-    SleepResponse, ActivityResponse, ReadinessResponse,
-    SleepSessionResponse, WorkoutResponse, HeartRateResponse, 
-    ResilienceResponse, TemperatureResponse, MeditationResponse
-)
+from .schemas import DayDataResponse
 from ..ingestion import OuraParser
 from ..automation import automator
 from ..llm import DataAnalyst
@@ -134,7 +128,7 @@ async def chat(request: ChatRequest):
     Interacts with the AI Advisor (LangChain SQL Agent).
     """
     try:
-        logger.info(f"Incoming Chat Request.")
+        logger.info("Incoming Chat Request.")
         advisor = DataAnalyst()
             
         # Append latest user message to history references
@@ -399,10 +393,12 @@ def query_data(
         model = model_map.get(domain)
         if not model:
             raise HTTPException(status_code=400, detail=f"Unknown domain: {domain}")
-            
-        if not hasattr(model, field):
-             raise HTTPException(status_code=400, detail=f"Unknown field: {field} in {domain}")
-             
+
+        # Validate against actual table columns (hasattr alone would also
+        # match relationships/class attrs like 'metadata' or 'registry').
+        if field not in model.__table__.columns:
+            raise HTTPException(status_code=400, detail=f"Unknown field: {field} in {domain}")
+
         column = getattr(model, field)
         
         # Construct Value Expression
@@ -499,7 +495,7 @@ def get_schema():
                     try:
                         type_str = str(col.type).upper()
                         is_json = 'JSON' in type_str
-                    except:
+                    except Exception:
                         pass
                     
                     fields.append({

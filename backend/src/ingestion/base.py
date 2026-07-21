@@ -46,8 +46,9 @@ class IngestionBase:
                 new_rows = []
                 for line in raw_data_lines:
                     line = line.strip()
-                    if not line: continue
-                    
+                    if not line:
+                        continue
+
                     # Remove wrapping quotes
                     if line.startswith('"') and line.endswith('"'):
                         line = line[1:-1]
@@ -65,8 +66,9 @@ class IngestionBase:
         data = []
         for line in raw_data_lines:
             line = line.strip()
-            if not line: continue
-            
+            if not line:
+                continue
+
             if line.startswith('"') and line.endswith('"'):
                 line = line[1:-1]
             
@@ -171,7 +173,7 @@ class IngestionBase:
             val = val.replace('"', '')
         try:
             return pd.to_datetime(val, format='ISO8601').to_pydatetime()
-        except:
+        except Exception:
             return None
 
     def _parse_date(self, val):
@@ -183,7 +185,7 @@ class IngestionBase:
             val = val.replace('"', '')
         try:
             return pd.to_datetime(val).date()
-        except:
+        except Exception:
             return None
 
     def _parse_float(self, val):
@@ -248,22 +250,22 @@ class IngestionBase:
                         parsed = ast.literal_eval(val_str)
                         if isinstance(parsed, list):
                             items = parsed
-                except:
+                except Exception:
                     pass
 
             if items is None:
                 # 3. Fallback: Split/Clean (Handle digit strings "4422" or comma-separated)
                 val_cleaned = val_str.replace('"', '').replace("'", "")
                 if ',' in val_cleaned:
-                        try:
-                            items = [float(x.strip()) for x in val_cleaned.strip('[]').split(',') if x.strip()]
-                        except:
-                            pass
+                    try:
+                        items = [float(x.strip()) for x in val_cleaned.strip('[]').split(',') if x.strip()]
+                    except Exception:
+                        pass
                 else:
                     # Hypnogram string case: "4422233"
                     try:
                         items = [int(c) for c in val_cleaned if c.isdigit()]
-                    except:
+                    except Exception:
                         pass
 
         if not items:

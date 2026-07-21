@@ -24,7 +24,7 @@ class CommonProcessor(IngestionBase):
                     source=row.get('source') or ''
                 )
                 records.append(hr)
-            except Exception as e:
+            except Exception:
                 continue
         
         self._batch_upsert(HeartRate, records, ['timestamp'])
@@ -79,8 +79,8 @@ class CommonProcessor(IngestionBase):
                     hardware_type=row.get('hardware_type')
                 )
                 records.append(conf)
-            except:
-                pass
+            except Exception:
+                continue
         self._upsert(RingConfiguration, records, ['id'])
 
     def process_tag(self, df: pd.DataFrame):
@@ -95,8 +95,8 @@ class CommonProcessor(IngestionBase):
                     comment=row.get('comment')
                 )
                 records.append(tag)
-            except:
-                pass
+            except Exception:
+                continue
         self._upsert(Tag, records, ['id'])
 
     def process_cardiovascular_age(self, df: pd.DataFrame):
@@ -109,6 +109,6 @@ class CommonProcessor(IngestionBase):
                     vascular_age=self._parse_int(row.get('vascular_age'))
                 )
                 records.append(rec)
-            except:
-                pass
+            except Exception:
+                continue
         self._upsert(CardiovascularAge, records, ['day'])

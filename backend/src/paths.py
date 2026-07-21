@@ -32,8 +32,8 @@ def get_user_data_dir() -> Path:
         logger.warning(f"Failed to create user data dir at {path}. Falling back to {fallback}. Error: {e}")
         path = fallback
         try:
-             path.mkdir(parents=True, exist_ok=True)
-        except:
-             pass # Last resort
-        
+            path.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass  # Last resort
+
     return path
