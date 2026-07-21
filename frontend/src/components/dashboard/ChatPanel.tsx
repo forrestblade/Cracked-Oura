@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { X, Send, Loader2, Bot, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Markdown } from "@/components/Markdown";
 import type { Message } from "@/hooks/useChat";
 import { ThoughtsDisplay } from "@/components/dashboard/ThoughtsDisplay";
 
@@ -81,7 +82,7 @@ export function ChatPanel({ onClose, messages, isLoading, onSend }: ChatPanelPro
                                     ? "bg-primary text-primary-foreground rounded-tr-none"
                                     : "bg-muted rounded-tl-none"
                             )}>
-                                {msg.content}
+                                {msg.role === 'assistant' ? <Markdown text={msg.content} /> : msg.content}
 
                                 {msg.role === 'assistant' && msg.thoughts && msg.thoughts.length > 0 && (
                                     <ThoughtsDisplay thoughts={msg.thoughts} />

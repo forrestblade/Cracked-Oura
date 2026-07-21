@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Loader2, Bot, User, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Markdown } from "@/components/Markdown";
 import type { Message } from "@/hooks/useChat";
 import { ThoughtsDisplay } from "@/components/dashboard/ThoughtsDisplay";
 
@@ -122,9 +123,13 @@ export function ChatPage({ messages, isLoading, onSend, onClear }: ChatPageProps
                                             ? "bg-primary text-primary-foreground rounded-tr-none"
                                             : "bg-muted rounded-tl-none"
                                     )}>
-                                        <div className="whitespace-pre-wrap leading-relaxed">
-                                            {msg.content}
-                                        </div>
+                                        {msg.role === 'assistant' ? (
+                                            <Markdown text={msg.content} />
+                                        ) : (
+                                            <div className="whitespace-pre-wrap leading-relaxed">
+                                                {msg.content}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {msg.role === 'assistant' && msg.thoughts && msg.thoughts.length > 0 && (
