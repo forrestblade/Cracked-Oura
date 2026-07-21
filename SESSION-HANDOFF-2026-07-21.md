@@ -147,6 +147,14 @@ unit:hours, anchor:today}`.
    (0x49/0x4c/0x4f), SpO2 (0x6f), HRV (0x5d) should appear — exporter only
    fills heartrate/temperature/battery CSVs today. Extend exporter →
    `sleepmodel.csv`/`dailysleep.csv`/`dailyspo2.csv` so score widgets light up.
+   **Investigated 2026-07-21 late evening: BLOCKED on data.** The decoded
+   history contains ZERO 0x49/0x4c/0x4f/0x6f/0x5d frames (the firmware crash
+   wiped on-ring history; no overnight wear since). The openring decoders
+   for these tags are auto-extractor guesses (unnamed uint16s at offsets) —
+   mapping them to Oura CSV columns without real frames to validate against
+   would be invention. Revisit AFTER the first full night of wear: check
+   `decoded_events.jsonl` for those tags, compare values against plausible
+   sleep durations/stages, then extend `decode_events.py cmd_export`.
 5. **Daemon steady-state DHR**: open_ring §6.7 documents a daytime-HR burst
    mode (re-trigger every 15 s) — not implemented; current HR cadence is the
    ring's own background sampling.
