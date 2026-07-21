@@ -42,11 +42,15 @@ Full credits and licensing details: **[ATTRIBUTION.md](ATTRIBUTION.md)** and
 - **`ringlink/decode_events.py`** — decode → export → ingest pipeline: raw
   frames → typed records with resolved UTC timestamps → Oura-cloud-export
   format CSVs → the upstream `OuraParser` ingests them unchanged into SQLite.
+- **`ringlink/ring_daemon.py`** — a **persistent connection daemon**, the
+  architecture the ring firmware expects (the official app holds the link
+  24/7): connect once, flush/drain every 20 s, auto-ingest every 5 min,
+  hourly time-sync, reconnect backoff, and a dongle USB-reset ladder for
+  wedged transports. Status heartbeats go to `ring_status.json`.
 - **`ringlink/sync_ring.py`** + **`install_task.sh`** — one-shot sync
-  orchestrator (single BLE connection: connect → auth → battery → time-sync →
-  drain → decode → export → ingest) run every 15 minutes by a Windows
-  Scheduled Task (`RingLocalSync`), with status written to
-  `ring_status.json`.
+  fallback (skips itself while the daemon is alive). The Windows Scheduled
+  Task (`RingLocalSync`, every 15 min via `sync_dashboard.sh`) acts as a
+  **watchdog** that restarts the daemon if it died.
 - **Ring status in the dashboard** — new backend endpoints
   (`GET /api/ring/status`, `POST /api/ring/sync`) and a header widget
   (`RingStatus.tsx`): colored dot, battery %, last-sync age, "Sync now".
@@ -90,9 +94,9 @@ cd ringlink && ./flash_dongle.sh
 #    CRITICAL: pairing must be the FIRST connection after the reset completes.
 ./venv310/Scripts/python.exe oura_ring.py pair     # writes oura_key.hex — back it up, never commit it
 
-# 2. Sync manually (or install the 15-min background task)
-./venv310/Scripts/python.exe sync_ring.py
-./install_task.sh                                   # registers Scheduled Task "RingLocalSync"
+# 2. Start the persistent daemon (or install the watchdog task that keeps it alive)
+./sync_dashboard.sh                                 # starts ring_daemon.py (PID lock, idempotent)
+./install_task.sh                                   # registers Scheduled Task "RingLocalSync" (15-min watchdog)
 
 # 3. Run the dashboard (vite + electron; electron spawns the FastAPI backend on :8000)
 cd .. && ./start_dashboard.sh
@@ -108,10 +112,16 @@ indicator shows sync freshness and battery, with a "Sync now" button.
 ./venv310/Scripts/python.exe oura_ring.py info      # firmware / serial / battery
 ./venv310/Scripts/python.exe oura_ring.py events    # drain history → events.jsonl
 ./venv310/Scripts/python.exe decode_events.py ingest  # decode + export + import into the DB
+./venv310/Scripts/python.exe sync_ring.py           # one-shot sync (only if the daemon is stopped)
+tail -f daemon.log                                  # watch the live daemon
+cat .daemon.lock                                    # daemon PID
+touch soft_reset.request                            # clean ring reboot via the connected daemon
 ```
 
 `ringlink/HANDOFF.md` is the authoritative engineering log — protocol notes,
 failure modes, and every gotcha hit along the way.
+`SESSION-HANDOFF-2026-07-21.md` captures the current operational state
+(daemon architecture, environment gotchas, outstanding work).
 
 ---
 
