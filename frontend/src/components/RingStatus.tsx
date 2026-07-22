@@ -109,16 +109,17 @@ export const RingStatus = () => {
                     {ind !== 'syncing' && ` · ${agoText(status.last_sync_time)}`}
                 </span>
             </div>
-            <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={onSync}
-                disabled={status.live === true}
-            >
-                <RefreshCw className={`h-3.5 w-3.5 ${status.syncing && !status.live ? 'animate-spin' : ''}`} />
-                {status.live ? 'Live' : (status.syncing ? 'Syncing' : 'Sync now')}
-            </Button>
+            {!status.live && (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={onSync}
+                >
+                    <RefreshCw className={`h-3.5 w-3.5 ${status.syncing ? 'animate-spin' : ''}`} />
+                    {status.syncing ? 'Syncing' : 'Sync now'}
+                </Button>
+            )}
             {notice && (
                 <span className="text-[10px] text-muted-foreground max-w-[260px] leading-tight">
                     {notice}
