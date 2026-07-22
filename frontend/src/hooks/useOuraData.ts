@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 
 import { api } from '@/lib/api';
+import { useRefreshTick } from './useRefreshTick';
 
 export interface DailyScore {
     score: number;
@@ -42,6 +43,7 @@ export interface ResilienceData {
 export const useOuraData = (date: string) => {
     const [data, setData] = useState<any>(null);
     const [history, setHistory] = useState<{ sleep: any[], activity: any[], readiness: any[] }>({ sleep: [], activity: [], readiness: [] });
+    const tick = useRefreshTick();
 
     useEffect(() => {
         if (!date) return;
@@ -76,7 +78,7 @@ export const useOuraData = (date: string) => {
             });
         }).catch(err => console.error("Error fetching history:", err));
 
-    }, [date]);
+    }, [date, tick]);
 
 
 

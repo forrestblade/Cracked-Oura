@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 import { api } from '@/lib/api';
+import { useRefreshTick } from './useRefreshTick';
 
 interface QueryResult {
     date: string;
@@ -11,16 +12,20 @@ export function useOuraQuery(path: string, startDate?: string, endDate?: string)
     const [data, setData] = useState<QueryResult[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const tick = useRefreshTick();
+    const hasLoaded = useRef(false);
 
     useEffect(() => {
         if (!path) return;
 
         const fetchData = async () => {
-            setLoading(true);
+            // Spinner only on first load; background refreshes are silent.
+            if (!hasLoaded.current) setLoading(true);
             setError(null);
             try {
                 const json = await api.getQuery(path, startDate, endDate);
                 setData(json);
+                hasLoaded.current = true;
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Unknown error');
                 console.error("Query Error:", err);
@@ -30,7 +35,7 @@ export function useOuraQuery(path: string, startDate?: string, endDate?: string)
         };
 
         fetchData();
-    }, [path, startDate, endDate]);
+    }, [path, startDate, endDate, tick]);
 
     return { data, loading, error };
 }

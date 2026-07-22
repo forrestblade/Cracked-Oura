@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 import { api } from "@/lib/api";
+import { useRefreshTick } from './useRefreshTick';
 
 interface QueryResult {
     date: string;
@@ -13,6 +14,8 @@ export function useMultiOuraQuery(paths: string[], startDate?: string, endDate?:
     const [data, setData] = useState<MergedRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const tick = useRefreshTick();
+    const hasLoaded = useRef(false);
 
     // Stable key so the effect only re-runs when the actual path list changes,
     // not when the caller passes a new array identity each render.
@@ -26,7 +29,8 @@ export function useMultiOuraQuery(paths: string[], startDate?: string, endDate?:
         }
 
         const fetchData = async () => {
-            setLoading(true);
+            // Spinner only on first load; background refreshes are silent.
+            if (!hasLoaded.current) setLoading(true);
             setError(null);
             try {
 
@@ -62,6 +66,7 @@ export function useMultiOuraQuery(paths: string[], startDate?: string, endDate?:
                 );
 
                 setData(mergedArray);
+                hasLoaded.current = true;
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Unknown error');
                 console.error("Multi Query Error:", err);
@@ -71,7 +76,7 @@ export function useMultiOuraQuery(paths: string[], startDate?: string, endDate?:
         };
 
         fetchData();
-    }, [pathsKey, startDate, endDate, refreshKey]);
+    }, [pathsKey, startDate, endDate, refreshKey, tick]);
 
     return { data, loading, error };
 }
