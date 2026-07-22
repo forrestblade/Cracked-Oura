@@ -53,19 +53,28 @@ def is_dongle_wedge(exc: BaseException) -> bool:
 
 
 def reset_dongle_usb() -> bool:
-    """Trigger the elevated USB restart task; True if it ran."""
+    """Request a USB-level dongle restart; True if a reset was arranged.
+
+    Primary path: touch dongle_reset.request — the RingDongleReset scheduled
+    task polls for it every 5 min (elevated) and runs the pnputil restart.
+    A direct `schtasks /Run` is attempted first as a fast path, but tasks
+    created from an elevated context are NOT controllable by non-elevated
+    processes (Access is denied), so the flag file is the reliable path."""
     import subprocess
+    flag = HERE / "dongle_reset.request"
+    flag.touch()
     try:
         r = subprocess.run(["schtasks", "/Run", "/TN", "RingDongleReset"],
                            capture_output=True, text=True, timeout=30)
+        if r.returncode == 0:
+            print("[sync] dongle USB reset triggered; waiting for re-enumeration")
+            time.sleep(12)
+            return True
     except Exception:
-        return False
-    if r.returncode != 0:
-        print("[sync] RingDongleReset task not available "
-              "(run ringlink/install_dongle_reset_task.sh once as admin)")
-        return False
-    print("[sync] dongle USB reset triggered; waiting for re-enumeration")
-    time.sleep(12)
+        pass
+    print("[sync] dongle reset requested via flag file "
+          "(RingDongleReset polls every 5 min); waiting")
+    time.sleep(60)
     return True
 
 

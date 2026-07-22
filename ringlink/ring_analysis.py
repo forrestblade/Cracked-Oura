@@ -289,8 +289,12 @@ def summarize_session(sess: dict, staging: dict, vitals: dict,
 
     start_dt = datetime.fromtimestamp(sess["start_ms"] / 1000)
     end_dt = datetime.fromtimestamp(sess["end_ms"] / 1000)
+    # ID from the 30-min bucket of the start time — re-decodes can shift a
+    # session's anchored start by a few minutes, and an exact-minute ID would
+    # then upsert a DUPLICATE session row instead of replacing the old one.
+    bucket = int(round(sess["start_ms"] / 1000 / 1800))
     return {
-        "id": f"ring-{start_dt:%Y%m%d%H%M}",
+        "id": f"ring-s{bucket}",
         "day": end_dt.date().isoformat(),          # Oura: night belongs to wake day
         "bedtime_start": start_dt, "bedtime_end": end_dt,
         "type": "long_sleep" if asleep_s >= NAP_MAX_S else "sleep",
@@ -488,6 +492,7 @@ def analyze(records: list[dict]) -> dict:
         sc, sc_c = sleep_score(s, profile, baselines)
         rd, rd_c, temp_dev = readiness_score(s, profile, baselines, day)
         b["sleep_score"] = sc
+        b["readiness_score"] = rd
         s["readiness"] = {"score": rd, "contributors": rd_c,
                           "temperature_deviation": temp_dev}
         daily_sleep[day] = {"id": f"ring-sleep-{day}", "day": day, "score": sc,
@@ -498,7 +503,31 @@ def analyze(records: list[dict]) -> dict:
                                 "temperature_trend_deviation": temp_dev,
                                 "contributors": rd_c}
     save_baselines(baselines)
+
+    # --- resilience: multi-day recovery capacity (needs >=3 nights of
+    # baselines; until then no rows — the widget fills as history accrues) ---
+    daily_resilience = []
+    for day in sorted(daily_readiness):
+        sleep_hist = _trailing(baselines, day, "sleep_score") \
+            + [baselines[day].get("sleep_score")]
+        rdy_hist = _trailing(baselines, day, "readiness_score") \
+            + [baselines[day].get("readiness_score")]
+        sleep_hist = [v for v in sleep_hist if v is not None]
+        rdy_hist = [v for v in rdy_hist if v is not None]
+        if len(sleep_hist) < 3:
+            continue
+        c = {"sleep_recovery": round(st.mean(sleep_hist), 1),
+             "daytime_recovery": round(st.mean(rdy_hist), 1),
+             "stress": round(st.mean(rdy_hist[-7:]), 1)}
+        avg = st.mean(c.values())
+        level = ("limited" if avg < 40 else "adequate" if avg < 55 else
+                 "solid" if avg < 70 else "strong" if avg < 85 else
+                 "exceptional")
+        daily_resilience.append({"id": f"ring-res-{day}", "day": day,
+                                 "level": level, "contributors": c})
+
     return {"sessions": sessions,
             "daily_sleep": list(daily_sleep.values()),
             "daily_readiness": list(daily_readiness.values()),
-            "daily_activity": list(activity.values())}
+            "daily_activity": list(activity.values()),
+            "daily_resilience": daily_resilience}

@@ -20,6 +20,59 @@ export const api = {
         return data;
     },
 
+    // --- Manual logging: tags & workouts ---
+    createTag: async (tag: { tag_type_code: string; comment?: string; start_time: string; end_time?: string }) => {
+        const res = await fetch(`${BASE_URL}/api/tags`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(tag)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed to save tag');
+        return data;
+    },
+
+    getTags: async (startDate?: string, endDate?: string) => {
+        const params = new URLSearchParams();
+        if (startDate) params.append('start_date', startDate);
+        if (endDate) params.append('end_date', endDate);
+        const res = await fetch(`${BASE_URL}/api/tags?${params.toString()}`);
+        if (!res.ok) throw new Error('Failed to fetch tags');
+        return res.json();
+    },
+
+    deleteTag: async (id: string) => {
+        const res = await fetch(`${BASE_URL}/api/tags/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete tag');
+        return res.json();
+    },
+
+    createWorkout: async (w: { activity: string; start_time: string; end_time: string; intensity?: string; label?: string; distance?: number }) => {
+        const res = await fetch(`${BASE_URL}/api/workouts`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(w)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed to save workout');
+        return data;
+    },
+
+    getWorkouts: async (startDate?: string, endDate?: string) => {
+        const params = new URLSearchParams();
+        if (startDate) params.append('start_date', startDate);
+        if (endDate) params.append('end_date', endDate);
+        const res = await fetch(`${BASE_URL}/api/workouts?${params.toString()}`);
+        if (!res.ok) throw new Error('Failed to fetch workouts');
+        return res.json();
+    },
+
+    deleteWorkout: async (id: string) => {
+        const res = await fetch(`${BASE_URL}/api/workouts/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete workout');
+        return res.json();
+    },
+
     // --- Dashboard Data ---
     getDailyData: async (date: string) => {
         const res = await fetch(`${BASE_URL}/api/days/${date}`);

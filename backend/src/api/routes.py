@@ -1,8 +1,11 @@
+import json
 import logging
 import os
 import shutil
 import tempfile
 import traceback
+import uuid
+from pathlib import Path
 from typing import List, Optional, Any
 from datetime import date, datetime
 
@@ -422,3 +425,127 @@ async def ingest_zip(file: UploadFile = File(...), db: Session = Depends(get_db)
     except Exception as e:
         logger.error(f"Ingestion error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# -----------------------------------------------------------------------------
+# Manual Logging: Tags & Workouts
+# -----------------------------------------------------------------------------
+
+
+def _load_ring_profile() -> dict:
+    """User profile from ringlink/profile.json (age/weight for calories)."""
+    defaults = {"age": 30, "weight_kg": 80.0, "sex": "male"}
+    ringlink = Path(os.environ.get(
+        "RINGLINK_DIR", Path(__file__).resolve().parents[3] / "ringlink"))
+    try:
+        defaults.update(json.loads((ringlink / "profile.json").read_text()))
+    except Exception:
+        pass
+    return defaults
+
+
+class TagCreate(BaseModel):
+    tag_type_code: str
+    comment: Optional[str] = None
+    start_time: datetime
+    end_time: Optional[datetime] = None
+
+
+class WorkoutCreate(BaseModel):
+    activity: str
+    start_time: datetime
+    end_time: datetime
+    intensity: Optional[str] = None  # easy | moderate | hard
+    label: Optional[str] = None
+    distance: Optional[float] = None  # meters
+
+
+@router.get("/api/tags")
+async def list_tags(start_date: Optional[date] = None,
+                    end_date: Optional[date] = None,
+                    db: Session = Depends(get_db)):
+    q = db.query(Tag)
+    if start_date:
+        q = q.filter(Tag.start_time >= datetime.combine(start_date, datetime.min.time()))
+    if end_date:
+        q = q.filter(Tag.start_time <= datetime.combine(end_date, datetime.max.time()))
+    return q.order_by(Tag.start_time.desc()).limit(200).all()
+
+
+@router.post("/api/tags")
+async def create_tag(req: TagCreate, db: Session = Depends(get_db)):
+    tag = Tag(id=str(uuid.uuid4()), start_time=req.start_time,
+              end_time=req.end_time or req.start_time,
+              tag_type_code=req.tag_type_code, comment=req.comment)
+    db.add(tag)
+    db.commit()
+    return {"message": "Tag saved", "id": tag.id}
+
+
+@router.delete("/api/tags/{tag_id}")
+async def delete_tag(tag_id: str, db: Session = Depends(get_db)):
+    n = db.query(Tag).filter(Tag.id == tag_id).delete()
+    db.commit()
+    if not n:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    return {"message": "Tag deleted"}
+
+
+@router.get("/api/workouts")
+async def list_workouts(start_date: Optional[date] = None,
+                        end_date: Optional[date] = None,
+                        db: Session = Depends(get_db)):
+    q = db.query(Workout)
+    if start_date:
+        q = q.filter(Workout.day >= start_date)
+    if end_date:
+        q = q.filter(Workout.day <= end_date)
+    return q.order_by(Workout.day.desc()).limit(200).all()
+
+
+@router.post("/api/workouts")
+async def create_workout(req: WorkoutCreate, db: Session = Depends(get_db)):
+    if req.end_time <= req.start_time:
+        raise HTTPException(status_code=400, detail="end_time must be after start_time")
+
+    # Calories from recorded heart rate over the window (Keytel et al. 2005),
+    # falling back to a MET guess by intensity if no HR samples exist.
+    profile = _load_ring_profile()
+    weight, age = profile["weight_kg"], profile["age"]
+    hr_rows = (db.query(HeartRate)
+               .filter(HeartRate.timestamp >= req.start_time,
+                       HeartRate.timestamp <= req.end_time).all())
+    minutes = (req.end_time - req.start_time).total_seconds() / 60
+    if hr_rows:
+        avg_hr = sum(r.bpm for r in hr_rows) / len(hr_rows)
+        if profile.get("sex") == "male":
+            kcal_min = (-55.0969 + 0.6309 * avg_hr + 0.1988 * weight
+                        + 0.2017 * age) / 4.184
+        else:
+            kcal_min = (-20.4022 + 0.4472 * avg_hr - 0.1263 * weight
+                        + 0.074 * age) / 4.184
+        calories = max(0.0, kcal_min) * minutes
+    else:
+        met = {"easy": 3.5, "moderate": 6.0, "hard": 9.0}.get(
+            req.intensity or "moderate", 6.0)
+        calories = met * 3.5 * weight / 200 * minutes
+
+    w = Workout(id=str(uuid.uuid4()), day=req.start_time.date(),
+                start_time=req.start_time, end_time=req.end_time,
+                activity=req.activity, calories=round(calories),
+                distance=req.distance, intensity=req.intensity,
+                label=req.label, source="manual")
+    db.add(w)
+    db.commit()
+    return {"message": "Workout saved", "id": w.id,
+            "calories": round(calories),
+            "hr_samples": len(hr_rows)}
+
+
+@router.delete("/api/workouts/{workout_id}")
+async def delete_workout(workout_id: str, db: Session = Depends(get_db)):
+    n = db.query(Workout).filter(Workout.id == workout_id).delete()
+    db.commit()
+    if not n:
+        raise HTTPException(status_code=404, detail="Workout not found")
+    return {"message": "Workout deleted"}

@@ -77,6 +77,7 @@ def run_pipeline():
     decode_events.cmd_decode(EVENTS_FILE, decode_events.DECODED_FILE)
     decode_events.cmd_export(EVENTS_FILE, min_temp_c=20.0)
     decode_events.cmd_ingest()
+    decode_events.rotate_events(EVENTS_FILE)
 
 
 def steady_state(ring) -> None:

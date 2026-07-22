@@ -175,7 +175,23 @@ def resolve_times(records):
             elif rec["type"] == 0x85 and len(p) >= 4:
                 unix_s = int.from_bytes(p[0:4], "little")
                 anchor = (rt, unix_s * 1000, TICK_MS_DEFAULT, "rtc_beacon_0x85")
-        last = next((r for r in reversed(seg) if r["ring_time"] is not None), None)
+        # Tail = the record with MAX ring_time. Drain replays (cursor
+        # overlap) append out of stream order, so "last line in the file"
+        # can have a LOWER ring_time than earlier lines — anchoring on it
+        # projected higher-ring_time records into the FUTURE (bug seen
+        # 2026-07-22: HR rows +1h49m ahead of wall clock).
+        timed = [r for r in seg if r["ring_time"] is not None]
+        last = max(timed, key=lambda r: r["ring_time"], default=None)
+
+        def host_anchor(source: str):
+            # Anchor so that NO record lands after its own host receive time
+            # (causality: we can't receive a frame before it was emitted).
+            # The min offset comes from the freshest live frames, which is
+            # exactly the right reference.
+            offset = min(int(r["host_ts"] * 1000) - TICK_MS_DEFAULT * r["ring_time"]
+                         for r in timed)
+            return (0, offset, TICK_MS_DEFAULT, source)
+
         if anchor is not None and last is not None:
             a_rt, a_utc, tick, src = anchor
             tail_utc = a_utc + tick * (last["ring_time"] - a_rt)
@@ -184,19 +200,20 @@ def resolve_times(records):
                 print(f"  [decode] rejected {src} anchor: segment tail lands "
                       f"{drift_ms / 60000:+.1f} min from host receive time "
                       f"(stale ring clock); anchoring on host clock")
-                anchor = (last["ring_time"], int(last["host_ts"] * 1000),
-                          TICK_MS_DEFAULT, f"host_corrected({src})")
+                anchor = host_anchor(f"host_corrected({src})")
         if anchor is None:
             if last is not None:
-                anchor = (last["ring_time"], int(last["host_ts"] * 1000),
-                          TICK_MS_DEFAULT, "host_fallback")
+                anchor = host_anchor("host_fallback")
         for rec in seg:
             rt = rec["ring_time"]
             if anchor is None or rt is None:
                 rec["utc_ms"], rec["utc_source"] = None, None
                 continue
             a_rt, a_utc, tick, src = anchor
-            rec["utc_ms"] = a_utc + tick * (rt - a_rt)
+            utc_ms = a_utc + tick * (rt - a_rt)
+            # Universal causality clamp: never later than its receive time.
+            utc_ms = min(utc_ms, int(rec["host_ts"] * 1000))
+            rec["utc_ms"] = utc_ms
             rec["utc_source"] = src
     return records
 
@@ -352,6 +369,11 @@ def cmd_export(events_path: Path, min_temp_c: float):
                  json.dumps(d["contributors"])]
                 for d in analysis["daily_readiness"]])
 
+    _write_csv(EXPORT_DIR / "dailyresilience.csv",
+               ["id", "day", "level", "contributors"],
+               [[d["id"], d["day"], d["level"], json.dumps(d["contributors"])]
+                for d in analysis["daily_resilience"]])
+
     def _seq(items, start_dt, interval):
         return json.dumps({"interval": interval, "items": items,
                            "timestamp": start_dt.isoformat()})
@@ -429,6 +451,44 @@ finally:
 from backend.src.database import DB_PATH
 print("ingested into", DB_PATH)
 """
+
+
+# ---------------------------------------------------------------------------
+# Log rotation — events.jsonl grows ~10 MB/day and the pipeline re-decodes
+# the whole file every cycle. Rotate decoded-and-ingested history out to
+# events.archive.jsonl; the DB is the durable store (upserts never delete),
+# and baselines.json carries the nightly aggregates across rotation.
+# ---------------------------------------------------------------------------
+
+ROTATE_MAX_BYTES = 20 * 1024 * 1024
+ROTATE_KEEP_S = 3 * 24 * 3600      # keep 3 days (cursor overlap is only 1 h)
+
+
+def rotate_events(events_path: Path = EVENTS_FILE):
+    """Call AFTER a successful ingest. Moves lines older than ROTATE_KEEP_S
+    to events.archive.jsonl once the live file exceeds ROTATE_MAX_BYTES."""
+    import time as _time
+    if not events_path.exists() or events_path.stat().st_size < ROTATE_MAX_BYTES:
+        return
+    cutoff = _time.time() - ROTATE_KEEP_S
+    archive = events_path.with_name("events.archive.jsonl")
+    keep, moved = [], 0
+    with events_path.open() as fh, archive.open("a") as arch:
+        for line in fh:
+            try:
+                old = json.loads(line)["ts"] < cutoff
+            except Exception:
+                old = False
+            if old:
+                arch.write(line)
+                moved += 1
+            else:
+                keep.append(line)
+    tmp = events_path.with_suffix(".tmp")
+    tmp.write_text("".join(keep))
+    tmp.replace(events_path)
+    print(f"  [rotate] {moved} old frames -> {archive.name}; "
+          f"{len(keep)} kept live")
 
 
 def cmd_ingest():

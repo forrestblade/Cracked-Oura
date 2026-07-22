@@ -16,7 +16,42 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [logs, setLogs] = useState<string[]>([]);
-    const [activeTab, setActiveTab] = useState<'data' | 'layout'>('data');
+    const [activeTab, setActiveTab] = useState<'data' | 'log' | 'layout'>('data');
+
+    // --- Log tab state ---
+    const nowLocal = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const [tagType, setTagType] = useState('caffeine');
+    const [tagComment, setTagComment] = useState('');
+    const [tagTime, setTagTime] = useState(nowLocal());
+    const [woActivity, setWoActivity] = useState('walking');
+    const [woIntensity, setWoIntensity] = useState('moderate');
+    const [woStart, setWoStart] = useState(nowLocal());
+    const [woMinutes, setWoMinutes] = useState('30');
+
+    const handleSaveTag = async () => {
+        setLoading(true); setError(null);
+        try {
+            await api.createTag({ tag_type_code: tagType, comment: tagComment || undefined, start_time: tagTime });
+            addLog(`Tag saved: ${tagType}${tagComment ? ` (${tagComment})` : ''}`);
+            setTagComment('');
+        } catch (err: any) { setError(err.message); }
+        finally { setLoading(false); }
+    };
+
+    const handleSaveWorkout = async () => {
+        setLoading(true); setError(null);
+        try {
+            const start = new Date(woStart);
+            const end = new Date(start.getTime() + parseInt(woMinutes || '30', 10) * 60000);
+            const toLocalIso = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+            const res = await api.createWorkout({
+                activity: woActivity, intensity: woIntensity,
+                start_time: toLocalIso(start), end_time: toLocalIso(end),
+            });
+            addLog(`Workout saved: ${woActivity} ${woMinutes} min ≈ ${res.calories} kcal (${res.hr_samples} HR samples)`);
+        } catch (err: any) { setError(err.message); }
+        finally { setLoading(false); }
+    };
 
     const addLog = (msg: string) => setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
 
@@ -62,6 +97,17 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                     onClick={() => setActiveTab('data')}
                 >
                     Data
+                </button>
+                <button
+                    className={cn(
+                        "flex-1 py-3 text-sm font-medium border-b-2 transition-colors",
+                        activeTab === 'log'
+                            ? "border-primary text-primary"
+                            : "border-transparent text-muted-foreground hover:text-foreground"
+                    )}
+                    onClick={() => setActiveTab('log')}
+                >
+                    Log
                 </button>
                 <button
                     className={cn(
@@ -129,6 +175,66 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                         {/* AI Analyst — Claude OAuth */}
                         <div className="pt-4 border-t">
                             <ClaudeConnect />
+                        </div>
+                    </>
+                )}
+
+                {activeTab === 'log' && (
+                    <>
+                        {/* Tag logger */}
+                        <div className="space-y-3">
+                            <h3 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">Add Tag</h3>
+                            <div className="grid grid-cols-2 gap-2">
+                                <select value={tagType} onChange={e => setTagType(e.target.value)}
+                                    className="h-9 rounded-md border border-input bg-transparent px-3 text-sm">
+                                    {['caffeine', 'alcohol', 'late_meal', 'stress', 'sick', 'nap', 'meditation', 'melatonin', 'travel', 'custom'].map(t =>
+                                        <option key={t} value={t} className="bg-card">{t.replace('_', ' ')}</option>)}
+                                </select>
+                                <Input type="datetime-local" value={tagTime} onChange={e => setTagTime(e.target.value)} />
+                            </div>
+                            <Input placeholder="Comment (optional)" value={tagComment} onChange={e => setTagComment(e.target.value)} />
+                            <Button className="w-full" onClick={handleSaveTag} disabled={loading}>Save Tag</Button>
+                        </div>
+
+                        {/* Workout logger */}
+                        <div className="space-y-3 pt-4 border-t">
+                            <h3 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">Add Workout</h3>
+                            <div className="grid grid-cols-2 gap-2">
+                                <select value={woActivity} onChange={e => setWoActivity(e.target.value)}
+                                    className="h-9 rounded-md border border-input bg-transparent px-3 text-sm">
+                                    {['walking', 'running', 'cycling', 'strength', 'hiit', 'yoga', 'swimming', 'hiking', 'sports', 'other'].map(t =>
+                                        <option key={t} value={t} className="bg-card">{t}</option>)}
+                                </select>
+                                <select value={woIntensity} onChange={e => setWoIntensity(e.target.value)}
+                                    className="h-9 rounded-md border border-input bg-transparent px-3 text-sm">
+                                    {['easy', 'moderate', 'hard'].map(t => <option key={t} value={t} className="bg-card">{t}</option>)}
+                                </select>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <Input type="datetime-local" value={woStart} onChange={e => setWoStart(e.target.value)} />
+                                <Input type="number" min="1" placeholder="minutes" value={woMinutes} onChange={e => setWoMinutes(e.target.value)} />
+                            </div>
+                            <Button className="w-full" onClick={handleSaveWorkout} disabled={loading}>Save Workout</Button>
+                            <p className="text-[10px] text-muted-foreground">
+                                Calories are estimated from your recorded heart rate over the
+                                workout window (falls back to intensity if no HR data).
+                            </p>
+                        </div>
+
+                        {error && (
+                            <Alert variant="destructive">
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertTitle>Error</AlertTitle>
+                                <AlertDescription>{error}</AlertDescription>
+                            </Alert>
+                        )}
+
+                        <div className="space-y-2">
+                            <Label>Activity Log</Label>
+                            <div className="bg-black/50 rounded-md p-3 h-24 overflow-y-auto font-mono text-xs text-muted-foreground space-y-1">
+                                {logs.length === 0 && <span className="opacity-50">No activity yet...</span>}
+                                {logs.map((log, i) => (<div key={i}>{log}</div>))}
+                            </div>
                         </div>
                     </>
                 )}
