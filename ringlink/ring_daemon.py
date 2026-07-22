@@ -80,11 +80,46 @@ def run_pipeline():
     decode_events.rotate_events(EVENTS_FILE)
 
 
+# Shared across steady-state AND the reconnect loop: drained frames must
+# reach the DB even while the ring is unreachable. Before this, ingest only
+# ran inside the connected loop — frames sat on disk for HOURS during long
+# radio naps / dongle wedges and the dashboard looked dead (2026-07-22).
+LAST_INGEST_MONO = 0.0
+LAST_INGEST_SIZE = -1
+
+
+def maybe_ingest_offline():
+    """Ingest new on-disk frames while disconnected (throttled)."""
+    global LAST_INGEST_MONO, LAST_INGEST_SIZE
+    if time.monotonic() - LAST_INGEST_MONO < INGEST_INTERVAL_S:
+        return
+    try:
+        size = EVENTS_FILE.stat().st_size
+    except OSError:
+        return
+    if size == LAST_INGEST_SIZE:
+        LAST_INGEST_MONO = time.monotonic()  # nothing new; re-check in 5 min
+        return
+    write_status("live", phase="ingesting", connected=False)
+    try:
+        run_pipeline()
+        LAST_INGEST_SIZE = EVENTS_FILE.stat().st_size
+        write_status("live", phase="reconnect_wait", connected=False,
+                     last_sync_ok=True, last_sync_time=now_iso(),
+                     last_error=None)
+        print("[daemon] offline ingest complete (ring still unreachable)")
+    except Exception as e:
+        traceback.print_exc()
+        write_status("live", phase="reconnect_wait", connected=False,
+                     last_error=f"ingest: {type(e).__name__}: {e}")
+    LAST_INGEST_MONO = time.monotonic()
+
+
 def steady_state(ring) -> None:
     """Hold the link; drain every FLUSH_INTERVAL_S. Raises on link loss."""
+    global LAST_INGEST_MONO, LAST_INGEST_SIZE
     cycle = 0
     pending_frames = 0
-    last_ingest = 0.0
     last_battery = 0.0
     last_timesync = time.monotonic()
 
@@ -130,10 +165,11 @@ def steady_state(ring) -> None:
                      last_seen=now_iso(), pending_frames=pending_frames)
 
         # --- ingest (throttled, only when there is something new) -----------
-        if pending_frames > 0 and now_mono - last_ingest >= INGEST_INTERVAL_S:
+        if pending_frames > 0 and now_mono - LAST_INGEST_MONO >= INGEST_INTERVAL_S:
             write_status("live", phase="ingesting", connected=True)
             try:
                 run_pipeline()
+                LAST_INGEST_SIZE = EVENTS_FILE.stat().st_size
                 write_status("live", phase="live", connected=True,
                              last_sync_ok=True, last_sync_time=now_iso(),
                              last_frames=pending_frames, last_error=None)
@@ -142,7 +178,7 @@ def steady_state(ring) -> None:
                 traceback.print_exc()
                 write_status("live", phase="live", connected=True,
                              last_error=f"ingest: {type(e).__name__}: {e}")
-            last_ingest = now_mono
+            LAST_INGEST_MONO = now_mono
 
         # --- hourly time-sync ------------------------------------------------
         if now_mono - last_timesync >= TIME_SYNC_INTERVAL_S:
@@ -208,6 +244,7 @@ def main() -> int:
                                  last_error=f"{type(e).__name__}: {e}")
                     print(f"[daemon] link lost ({type(e).__name__}: {e}); "
                           f"reconnecting in {delay}s")
+                    maybe_ingest_offline()
                     time.sleep(delay)
             finally:
                 if ring is not None:

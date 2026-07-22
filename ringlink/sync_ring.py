@@ -74,8 +74,18 @@ def reset_dongle_usb() -> bool:
         pass
     print("[sync] dongle reset requested via flag file "
           "(RingDongleReset polls every 5 min); waiting")
-    time.sleep(60)
-    return True
+    # Wait for the task to actually consume the flag (up to ~6 min), then
+    # give the USB stack a moment to re-enumerate. Bailing after only 60 s
+    # burned the daemon's reset budget before the reset ever fired.
+    for _ in range(24):
+        time.sleep(15)
+        if not flag.exists():
+            print("[sync] dongle reset executed; waiting for re-enumeration")
+            time.sleep(15)
+            return True
+    print("[sync] dongle reset never picked up — is the RingDongleReset "
+          "task installed? (install_dongle_reset_task.sh)")
+    return False
 
 
 def now_iso():
