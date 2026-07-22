@@ -160,16 +160,8 @@ def ring_sync():
     if _daemon_alive():
         st = _read_status()
         if st.get("connected"):
-            return {
-                "message": "Ring is live-connected — data refreshes "
-                "every 20 s automatically."
-            }
-        return {
-            "message": "Daemon is hunting — the ring's radio sleeps "
-            "between advertising waves. Dock the ring ~5 s to "
-            "force an instant catch; missed chart data "
-            "back-fills automatically."
-        }
+            return {"message": "Ring is live — already syncing automatically."}
+        return {"message": "Ring is napping — dock it ~5 s to sync now."}
     if LOCK_DIR.exists() and (time.time() - LOCK_DIR.stat().st_mtime) < LOCK_STALE_S:
         raise HTTPException(status_code=409, detail="sync already running")
     try:

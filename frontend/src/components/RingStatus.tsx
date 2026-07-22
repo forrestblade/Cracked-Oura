@@ -93,7 +93,7 @@ export const RingStatus = () => {
                 setNotice(e instanceof Error ? e.message : 'Sync unavailable.');
                 refresh();
             });
-        setTimeout(() => setNotice(null), 10000);
+        setTimeout(() => setNotice(null), 6000);
     };
 
     return (
@@ -121,7 +121,7 @@ export const RingStatus = () => {
                 </Button>
             )}
             {notice && (
-                <span className="text-[10px] text-muted-foreground max-w-[260px] leading-tight">
+                <span className="text-xs text-muted-foreground px-2 py-1 rounded-md border border-border bg-card/80 whitespace-nowrap">
                     {notice}
                 </span>
             )}
