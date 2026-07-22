@@ -55,26 +55,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
     const addLog = (msg: string) => setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
 
-    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
-        setLoading(true);
-        setError(null);
-        addLog(`Uploading ${file.name}...`);
-
-        try {
-            const data = await api.uploadZip(file);
-            addLog(data.message || "Upload complete");
-        } catch (err: any) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-            // Reset input
-            event.target.value = '';
-        }
-    };
-
     return (
         <div className="w-[400px] border-l bg-card flex flex-col h-full">
             {/* Header */}
@@ -135,43 +115,6 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                             </p>
                         </div>
 
-                        {/* Manual Import */}
-                        <div className="space-y-2">
-                            <Label>Manual Import</Label>
-                            <div className="flex gap-2">
-                                <Input
-                                    type="file"
-                                    accept=".zip"
-                                    onChange={handleFileUpload}
-                                    disabled={loading}
-                                    className="cursor-pointer"
-                                />
-                            </div>
-                            <p className="text-[10px] text-muted-foreground">
-                                Upload an Oura export ZIP file manually (optional; for importing
-                                historical cloud data).
-                            </p>
-                        </div>
-
-                        {error && (
-                            <Alert variant="destructive">
-                                <AlertCircle className="h-4 w-4" />
-                                <AlertTitle>Error</AlertTitle>
-                                <AlertDescription>{error}</AlertDescription>
-                            </Alert>
-                        )}
-
-                        {/* Logs Console */}
-                        <div className="space-y-2">
-                            <Label>Activity Log</Label>
-                            <div className="bg-black/50 rounded-md p-3 h-32 overflow-y-auto font-mono text-xs text-muted-foreground space-y-1">
-                                {logs.length === 0 && <span className="opacity-50">No activity yet...</span>}
-                                {logs.map((log, i) => (
-                                    <div key={i}>{log}</div>
-                                ))}
-                            </div>
-                        </div>
-
                         {/* AI Analyst — Claude OAuth */}
                         <div className="pt-4 border-t">
                             <ClaudeConnect />
@@ -229,13 +172,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                             </Alert>
                         )}
 
-                        <div className="space-y-2">
-                            <Label>Activity Log</Label>
-                            <div className="bg-black/50 rounded-md p-3 h-24 overflow-y-auto font-mono text-xs text-muted-foreground space-y-1">
-                                {logs.length === 0 && <span className="opacity-50">No activity yet...</span>}
-                                {logs.map((log, i) => (<div key={i}>{log}</div>))}
-                            </div>
-                        </div>
+                        {logs.length > 0 && (
+                            <p className="text-xs text-muted-foreground font-mono">{logs[logs.length - 1]}</p>
+                        )}
                     </>
                 )}
 
