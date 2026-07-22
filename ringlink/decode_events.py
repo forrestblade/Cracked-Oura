@@ -332,12 +332,76 @@ def cmd_export(events_path: Path, min_temp_c: float):
                ["timestamp", "level", "charging", "in_charger"],
                [batt_rows[k] for k in sorted(batt_rows)])
 
-    # --- dailysleep.csv: header-only marker ----------------------------------
-    # Cracked-Oura's zip importer locates the data directory by the PRESENCE of
-    # dailysleep.csv (or dailyactivity.csv). Header-only -> detected, 0 rows.
+    # --- sleep / readiness / activity (ring_analysis) ------------------------
+    import ring_analysis
+    analysis = ring_analysis.analyze(records)
+
     _write_csv(EXPORT_DIR / "dailysleep.csv",
                ["id", "day", "score", "timestamp", "contributors",
-                "recommendation", "status"], [])
+                "recommendation", "status"],
+               [[d["id"], d["day"], d["score"], d["timestamp"],
+                 json.dumps(d["contributors"]), "", ""]
+                for d in analysis["daily_sleep"]])
+
+    _write_csv(EXPORT_DIR / "dailyreadiness.csv",
+               ["id", "day", "score", "temperature_deviation",
+                "temperature_trend_deviation", "contributors"],
+               [[d["id"], d["day"], d["score"],
+                 "" if d["temperature_deviation"] is None else d["temperature_deviation"],
+                 "" if d["temperature_trend_deviation"] is None else d["temperature_trend_deviation"],
+                 json.dumps(d["contributors"])]
+                for d in analysis["daily_readiness"]])
+
+    def _seq(items, start_dt, interval):
+        return json.dumps({"interval": interval, "items": items,
+                           "timestamp": start_dt.isoformat()})
+
+    _write_csv(
+        EXPORT_DIR / "sleepmodel.csv",
+        ["id", "day", "bedtime_start", "bedtime_end", "type", "efficiency",
+         "latency", "total_sleep_duration", "deep_sleep_duration",
+         "rem_sleep_duration", "light_sleep_duration", "awake_time",
+         "average_heart_rate", "average_hrv", "sleep_phase_5_min",
+         "sleep_phase_30_sec", "movement_30_sec", "average_breath",
+         "lowest_heart_rate", "low_battery_alert", "period",
+         "restless_periods", "sleep_algorithm_version", "sleep_score_delta",
+         "time_in_bed", "heart_rate", "hrv", "readiness",
+         "readiness_score_delta"],
+        [[s["id"], s["day"], s["bedtime_start"].isoformat(),
+          s["bedtime_end"].isoformat(), s["type"], s["efficiency"],
+          s["latency"], s["total_sleep_duration"], s["deep_sleep_duration"],
+          s["rem_sleep_duration"], s["light_sleep_duration"], s["awake_time"],
+          s["average_heart_rate"], s["average_hrv"], s["stages_5min"],
+          s["stages_30s"], s["movement_30s"],
+          "" if s["average_breath"] is None else s["average_breath"],
+          "" if s["lowest_heart_rate"] is None else s["lowest_heart_rate"],
+          "", 1, s["restless_periods"], "ringlink-v1", "",
+          s["time_in_bed"],
+          _seq(s["hr_items"], s["bedtime_start"], 300),
+          _seq(s["hrv_items"], s["bedtime_start"], 300),
+          json.dumps(s.get("readiness")) if s.get("readiness") else "", ""]
+         for s in analysis["sessions"]])
+
+    _write_csv(
+        EXPORT_DIR / "dailyactivity.csv",
+        ["id", "day", "score", "steps", "total_calories", "active_calories",
+         "average_met_minutes", "equivalent_walking_distance", "contributors",
+         "class_5_min", "met", "high_activity_met_minutes",
+         "high_activity_time", "inactivity_alerts", "low_activity_met_minutes",
+         "low_activity_time", "medium_activity_met_minutes",
+         "medium_activity_time", "meters_to_target", "non_wear_time",
+         "resting_time", "sedentary_met_minutes", "sedentary_time",
+         "target_calories", "target_meters"],
+        [[d["id"], d["day"], d["score"], "", d["total_calories"],
+          d["active_calories"], d["average_met_minutes"], "",
+          json.dumps(d["contributors"]), d["class_5_min"],
+          json.dumps({"interval": 60, "items": d["met_items"],
+                      "timestamp": d["day"] + "T00:00:00"}),
+          "", d["high_activity_time"], "", "", d["low_activity_time"], "",
+          d["medium_activity_time"], "", d["non_wear_time"],
+          d["resting_time"], "", d["sedentary_time"], d["target_calories"],
+          ""]
+         for d in analysis["daily_activity"]])
 
     # --- zip -----------------------------------------------------------------
     with zipfile.ZipFile(EXPORT_ZIP, "w", zipfile.ZIP_DEFLATED) as z:

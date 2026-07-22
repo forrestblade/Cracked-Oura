@@ -6,14 +6,14 @@ import traceback
 from typing import List, Optional, Any
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
 # Constants and Configuration
 from ..config import config_manager
-from ..database import get_db, SessionLocal
+from ..database import get_db
 from ..models import (
     Sleep,
     Activity,
@@ -31,7 +31,6 @@ from ..models import (
 )
 from .schemas import DayDataResponse
 from ..ingestion import OuraParser
-from ..automation import automator
 from ..llm import DataAnalyst
 
 # Logging
@@ -50,19 +49,6 @@ class ChatRequest(BaseModel):
     history: List[dict] = []
 
 
-class LoginRequest(BaseModel):
-    email: str
-
-
-class OTPRequest(BaseModel):
-    otp: str
-
-
-class SettingsRequest(BaseModel):
-    daily_sync_time: str
-    email: Optional[str] = None
-
-
 class Dashboard(BaseModel):
     id: str
     name: str
@@ -79,74 +65,6 @@ class DashboardConfigRequest(BaseModel):
 
 class IngestRequest(BaseModel):
     file_path: str
-
-
-# -----------------------------------------------------------------------------
-# Background Tasks
-# -----------------------------------------------------------------------------
-
-
-async def run_full_sync_task(db_session_factory):
-    """
-    Executes the full synchronization process:
-    1. Request export from Oura Cloud (via playwright).
-    2. Wait for export generation.
-    3. Download the export zip.
-    4. Ingest data into the local SQLite database.
-    """
-    config_manager.update_status("Processing", message="Starting full sync...")
-    try:
-        # Create temp dir for the download
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config_manager.update_status(
-                "Processing",
-                message="Requesting and waiting for export (this may take hours)...",
-            )
-
-            # This step blocks while waiting for Oura to generate the export
-            result = await automator.request_new_export_and_download(temp_dir)
-
-            # Handle OTP requirement
-            if isinstance(result, dict) and result.get("status") == "otp_required":
-                config_manager.update_status(
-                    "Error", message="OTP required. Please login manually in settings."
-                )
-                logger.warning("Full sync failed: OTP required.")
-                return
-
-            zip_path = result
-
-            # Process successfully downloaded file
-            if zip_path and isinstance(zip_path, str):
-                config_manager.update_status(
-                    "Processing", message=f"Downloaded to {zip_path}. Ingesting..."
-                )
-                logger.info(f"Full sync: Downloaded to {zip_path}. Ingesting...")
-
-                # Ingest into Database
-                db = db_session_factory()
-                try:
-                    parser = OuraParser(db)
-                    parser.parse_zip(zip_path)
-                    logger.info("Full sync: Ingestion complete.")
-
-                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    config_manager.update_status(
-                        "Idle", message="Sync and ingestion complete!", last_run=now_str
-                    )
-                finally:
-                    db.close()
-            else:
-                logger.error("Full sync failed: No file downloaded.")
-                config_manager.update_status(
-                    "Error", message="No file downloaded (timeout?)"
-                )
-
-    except Exception as e:
-        logger.error(f"Full sync task error: {e}")
-        config_manager.update_status("Error", message=f"Sync failed: {e}")
-    finally:
-        await automator.cleanup()
 
 
 # -----------------------------------------------------------------------------
@@ -170,125 +88,6 @@ async def chat(request: ChatRequest):
         return response
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# -----------------------------------------------------------------------------
-# Automation & Authentication Endpoints
-# -----------------------------------------------------------------------------
-
-
-@router.post("/api/automation/start-login")
-async def start_login(request: LoginRequest):
-    """Initiates the login process via Playwright."""
-    try:
-        result = await automator.start_login(request.email)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/api/automation/submit-otp")
-async def submit_otp(request: OTPRequest):
-    """Submits the OTP code to the active Playwright session."""
-    try:
-        result = await automator.submit_otp(request.otp)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/api/automation/request-export")
-async def request_export(background_tasks: BackgroundTasks):
-    """
-    Starts the full export -> wait -> download -> ingest process in the background.
-    """
-    cfg = config_manager.get_config()
-    if cfg.get("status") == "Processing":
-        raise HTTPException(status_code=409, detail="Sync already in progress")
-
-    background_tasks.add_task(run_full_sync_task, SessionLocal)
-    return {"message": "Full sync started in background."}
-
-
-@router.post("/api/automation/check-status")
-async def check_status():
-    """Returns the current automation status from the persistent config."""
-    return config_manager.get_config()
-
-
-@router.post("/api/automation/download")
-async def download_export(db: Session = Depends(get_db)):
-    """
-    Attempts to download an *existing* export from Oura Cloud and ingest it.
-    Does not request a new export generation.
-    """
-    try:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            zip_path = await automator.download_existing_export(temp_dir)
-
-            if isinstance(zip_path, dict) and zip_path.get("status") == "error":
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Download failed: {zip_path.get('message')}",
-                )
-
-            if not zip_path:
-                raise HTTPException(
-                    status_code=500,
-                    detail="Download failed: Button not found or timeout.",
-                )
-
-            # Ingest
-            parser = OuraParser(db)
-            parser.parse_zip(zip_path)
-
-            return {"message": "Download and ingestion successful!"}
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/api/automation/clear-session")
-async def clear_session():
-    """Clears the automation session (cookies/storage)."""
-    try:
-        await automator.clear_session()
-        return {"message": "Session cleared"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# -----------------------------------------------------------------------------
-# Settings Endpoints
-# -----------------------------------------------------------------------------
-
-
-@router.post("/api/settings")
-async def save_settings(request: SettingsRequest):
-    """Updates global application settings."""
-    try:
-        updates = {"schedule_time": request.daily_sync_time}
-        if request.email is not None:
-            updates["email"] = request.email
-
-        config_manager.update_config(**updates)
-        return {"message": "Settings saved"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/api/settings")
-async def get_settings():
-    """Retrieves current application settings."""
-    try:
-        config = config_manager.get_config()
-        return {
-            "daily_sync_time": config.get("schedule_time", "09:00"),
-            "email": config.get("email", ""),
-        }
-    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 

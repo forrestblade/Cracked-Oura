@@ -42,6 +42,24 @@ Full credits and licensing details: **[ATTRIBUTION.md](ATTRIBUTION.md)** and
 - **`ringlink/decode_events.py`** — decode → export → ingest pipeline: raw
   frames → typed records with resolved UTC timestamps → Oura-cloud-export
   format CSVs → the upstream `OuraParser` ingests them unchanged into SQLite.
+- **`ringlink/ring_analysis.py`** — turns the ring's raw sleep-night frames
+  into full Oura-style summaries, computed 100% locally every night:
+  - **sleep sessions** from the ring's own bedtime window (`0x76`) + 30 s
+    sleep-period frames (`0x6a`: HR, breath, motion, sleep state),
+  - a **4-stage hypnogram** (deep/light/REM/awake — heuristic staging over
+    the ring's classifier, motion, and breath variability; validated
+    physiologically plausible on real nights),
+  - **HRV (RMSSD)** from the beat-to-beat IBI stream (`0x60`) merged with the
+    ring's own 5-min HRV pairs (`0x5d`), lowest/average HR, breath rate,
+    sleep skin temperature (`0x75`),
+  - **Sleep + Readiness scores with all contributors** (structure follows
+    the on-phone ecore engine documented by open_oura; curve points are our
+    own honest approximations, refined against rolling baselines in
+    `baselines.json`),
+  - **daily activity** (calories, MET, activity classes) from the ring's
+    per-minute MET samples (`0x50`).
+  Personal tuning lives in `ringlink/profile.json` (age, weight, sleep need;
+  gitignored).
 - **`ringlink/ring_daemon.py`** — a **persistent connection daemon**, the
   architecture the ring firmware expects (the official app holds the link
   24/7): connect once, flush/drain every 20 s, auto-ingest every 5 min,
@@ -57,6 +75,11 @@ Full credits and licensing details: **[ATTRIBUTION.md](ATTRIBUTION.md)** and
 - **AI analyst on Claude subscription OAuth** — replaced the upstream
   Ollama/LangChain agent with a direct Anthropic tool-use loop using the
   PKCE subscription OAuth flow (`backend/src/claude_auth.py`) — no API key.
+- **Removed upstream's cloud automation** — the Playwright-driven Oura-cloud
+  login/export scraper is gone (`automation.py`, `/api/automation/*`, the
+  scheduled cloud-sync worker, and the login/OTP settings UI). The ring is
+  the data source; the only cloud-adjacent path left is the optional manual
+  ZIP import for historical exports.
 - **Empirical Gen-4 findings** (not documented anywhere else we found):
   - The ring accepts a new auth key (`24 10 <key>`) **only on the very first
     connection after a factory reset**; any earlier connection — even a

@@ -41,6 +41,9 @@ ringlink/.daemon.lock
 ringlink/daemon.log
 ringlink/ring_cursor.txt
 ringlink/soft_reset.request
+# Personal profile + nightly baselines (biometric data)
+ringlink/profile.json
+ringlink/baselines.json
 # Machine-specific / generated
 ringlink/venv310/
 ringlink/firmware/
