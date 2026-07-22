@@ -72,6 +72,17 @@ Full credits and licensing details: **[ATTRIBUTION.md](ATTRIBUTION.md)** and
 - **Ring status in the dashboard** — new backend endpoints
   (`GET /api/ring/status`, `POST /api/ring/sync`) and a header widget
   (`RingStatus.tsx`): colored dot, battery %, last-sync age, "Sync now".
+  Indicator states: **green** = live link / recently synced · **pulsing
+  yellow** = actively transferring · **steady blue** = waiting for the
+  ring's radio (it naps between advertising waves while worn — dock the
+  ring ~5 s for an instant catch; buffered data back-fills) · **amber** =
+  last sync is getting old · **red** = pipeline down (daemon dead / dongle
+  wedged).
+- **Manual tags & workouts + local resilience** — Settings → Log lets you
+  tag sleep/lifestyle events (caffeine, alcohol, stress, naps…) and log
+  workouts; calories are estimated from your recorded heart rate over the
+  workout window (Keytel formula, profile-aware). Resilience levels appear
+  automatically once ≥3 nights of baselines accumulate.
 - **AI analyst on Claude subscription OAuth** — replaced the upstream
   Ollama/LangChain agent with a direct Anthropic tool-use loop using the
   PKCE subscription OAuth flow (`backend/src/claude_auth.py`) — no API key.

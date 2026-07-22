@@ -5,8 +5,9 @@ import { api } from '@/lib/api';
 
 export interface RingStatusData {
     available: boolean;
-    indicator: 'ok' | 'syncing' | 'stale' | 'error';
+    indicator: 'ok' | 'syncing' | 'waiting' | 'stale' | 'error';
     syncing: boolean;
+    waiting?: boolean;
     live?: boolean;
     phase?: string | null;
     attempt?: number | null;
@@ -20,6 +21,7 @@ export interface RingStatusData {
 const DOT_COLOR: Record<string, string> = {
     ok: 'bg-green-500',
     syncing: 'bg-yellow-400 animate-pulse',
+    waiting: 'bg-sky-400',
     stale: 'bg-amber-500',
     error: 'bg-red-500',
 };
@@ -27,6 +29,7 @@ const DOT_COLOR: Record<string, string> = {
 const LABEL: Record<string, string> = {
     ok: 'Ring synced',
     syncing: 'Syncing…',
+    waiting: 'Waiting for ring',
     stale: 'Sync stale',
     error: 'Ring offline',
 };
@@ -74,7 +77,9 @@ export const RingStatus = () => {
     const ind = status.syncing ? 'syncing' : status.indicator;
     const title = [
         LABEL[ind] || ind,
-        status.phase ? `phase: ${status.phase}` : null,
+        ind === 'waiting'
+            ? 'ring radio is napping — dock it ~5 s for an instant catch; data back-fills automatically'
+            : (status.phase ? `phase: ${status.phase}` : null),
         status.battery != null ? `battery ${status.battery}%` : null,
         `last sync: ${agoText(status.last_sync_time)}`,
         status.last_frames != null ? `${status.last_frames} frames` : null,
@@ -98,8 +103,8 @@ export const RingStatus = () => {
                 <span className={`h-2.5 w-2.5 rounded-full ${DOT_COLOR[ind] || 'bg-gray-500'}`} />
                 <span className="text-xs text-muted-foreground hidden sm:inline">
                     {status.live ? 'Ring live' : (LABEL[ind] || ind)}
-                    {ind === 'syncing' && status.phase &&
-                        ` · ${PHASE_LABEL[status.phase] || status.phase}${status.attempt ? ` (try ${status.attempt})` : ''}`}
+                    {ind === 'syncing' && status.phase && status.phase !== 'live' &&
+                        ` · ${PHASE_LABEL[status.phase] || status.phase}`}
                     {status.battery != null && ` · ${status.battery}%`}
                     {ind !== 'syncing' && ` · ${agoText(status.last_sync_time)}`}
                 </span>

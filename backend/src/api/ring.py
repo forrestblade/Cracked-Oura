@@ -92,9 +92,18 @@ def ring_status():
         (st.get("state") == "syncing" and lock_active)
         or (st.get("state") == "live" and _daemon_alive())
     ) and not heartbeat_fresh
-    syncing = (st.get("state") == "syncing" and lock_active and heartbeat_fresh) or (
-        live and heartbeat_fresh and not live_connected
+    # Hunting = daemon alive but the ring's radio is between advertising
+    # waves (normal while worn — it can nap for many minutes). This is NOT
+    # "syncing": surfacing every connect/reconnect_wait flip made the
+    # indicator flap. Data is never lost; the ring buffers and back-fills.
+    hunting = (
+        live and heartbeat_fresh
+        and st.get("phase") in ("connecting", "retry_wait",
+                                "reconnect_wait", "dongle_reset")
     )
+    syncing = (
+        st.get("state") == "syncing" and lock_active and heartbeat_fresh
+    ) or (live and heartbeat_fresh and not live_connected and not hunting)
 
     # Derive a coarse indicator the frontend can color directly.
     last_sync = st.get("last_sync_time")
@@ -112,6 +121,8 @@ def ring_status():
         indicator = "ok"  # persistent link up, data flowing
     elif syncing:
         indicator = "syncing"
+    elif hunting:
+        indicator = "waiting"  # daemon fine; ring radio napping (dock to catch)
     elif st.get("last_sync_ok") and not stale:
         indicator = "ok"  # synced within ~2 scheduled cycles
     elif st.get("last_sync_ok") and stale:
@@ -123,6 +134,7 @@ def ring_status():
         "available": SYNC_SCRIPT.exists() and VENV_PY.exists(),
         "indicator": indicator,
         "syncing": syncing,
+        "waiting": hunting,
         "live": live_connected,
         "phase": st.get("phase"),
         "attempt": st.get("attempt"),
